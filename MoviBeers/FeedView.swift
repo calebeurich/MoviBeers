@@ -9,8 +9,14 @@ import SwiftUI
 import FirebaseFirestore
 
 struct FeedView: View {
-    @StateObject private var viewModel = FeedViewModel()
     @EnvironmentObject var authViewModel: AuthViewModel
+    @StateObject private var viewModel: FeedViewModel
+    
+    init() {
+        // This is a temporary authViewModel for preview purposes only
+        // The real one will be passed in .onAppear
+        self._viewModel = StateObject(wrappedValue: FeedViewModel(authViewModel: AuthViewModel()))
+    }
     
     var body: some View {
         NavigationStack {
@@ -32,6 +38,9 @@ struct FeedView: View {
                 await viewModel.loadPosts()
             }
             .onAppear {
+                // Update the viewModel to use the correct authViewModel
+                viewModel.authViewModel = authViewModel
+                
                 Task {
                     await viewModel.loadPosts()
                 }
@@ -101,7 +110,7 @@ struct PostRow: View {
             // MARK: - Header
             HStack(spacing: 10) {
                 // Profile image
-                if let profileImageUrl = post.profileImageUrl, !profileImageUrl.isEmpty {
+                if let profileImageUrl = post.userProfileImage, !profileImageUrl.isEmpty {
                     AsyncImage(url: URL(string: profileImageUrl)) { phase in
                         switch phase {
                         case .empty:
@@ -161,8 +170,8 @@ struct PostRow: View {
                 Spacer()
                 
                 // Post type icon
-                Image(systemName: post.type == "beer" ? "mug.fill" : "film")
-                    .foregroundColor(post.type == "beer" ? .yellow : .red)
+                Image(systemName: post.type == PostType.beer ? "mug.fill" : "film")
+                    .foregroundColor(post.type == PostType.beer ? .yellow : .red)
             }
             
             // MARK: - Post Content
@@ -173,7 +182,7 @@ struct PostRow: View {
                 // Rating
                 HStack(spacing: 4) {
                     Image(systemName: "star.fill")
-                        .foregroundColor(post.type == "beer" ? .yellow : .red)
+                        .foregroundColor(post.type == PostType.beer ? .yellow : .red)
                         .font(.system(size: 14))
                     Text("\(post.rating)/5")
                         .font(.callout)
@@ -218,18 +227,18 @@ struct PostRow: View {
     }
     
     // Format date for display
-    private func formatDate(date: Timestamp) -> String {
+    private func formatDate(date: Date) -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateStyle = .medium
         dateFormatter.timeStyle = .none
-        return dateFormatter.string(from: date.dateValue())
+        return dateFormatter.string(from: date)
     }
     
     // Format time for display
-    private func formatTime(date: Timestamp) -> String {
+    private func formatTime(date: Date) -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "h:mm a"
-        return dateFormatter.string(from: date.dateValue())
+        return dateFormatter.string(from: date)
     }
 }
 
@@ -248,7 +257,7 @@ struct PostContent: View {
                 // Standardization badge
                 if let standardizedId = post.standardizedId, !standardizedId.isEmpty {
                     Image(systemName: "checkmark.seal.fill")
-                        .foregroundColor(post.type == "beer" ? .yellow : .red)
+                        .foregroundColor(post.type == PostType.beer ? .yellow : .red)
                         .font(.system(size: 12))
                 }
             }
@@ -261,7 +270,7 @@ struct PostContent: View {
             }
             
             // Image
-            if let imageUrl = post.imageUrl, !imageUrl.isEmpty {
+            if let imageUrl = post.imageURL, !imageUrl.isEmpty {
                 AsyncImage(url: URL(string: imageUrl)) { phase in
                     switch phase {
                     case .empty:
@@ -281,7 +290,7 @@ struct PostContent: View {
                             .fill(Color.gray.opacity(0.2))
                             .aspectRatio(16/9, contentMode: .fit)
                             .overlay(
-                                Image(systemName: post.type == "beer" ? "mug.fill" : "film")
+                                Image(systemName: post.type == PostType.beer ? "mug.fill" : "film")
                                     .font(.largeTitle)
                                     .foregroundColor(.gray)
                             )
@@ -293,7 +302,7 @@ struct PostContent: View {
             }
             
             // Notes
-            if let notes = post.notes, !notes.isEmpty {
+            if let notes = post.review, !notes.isEmpty {
                 Text(notes)
                     .font(.body)
                     .padding(.top, 4)
