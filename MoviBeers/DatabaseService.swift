@@ -347,4 +347,11 @@ class DatabaseService {
         
         return weekStart
     }
+    
+    private func formatDateTime(date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
 } 

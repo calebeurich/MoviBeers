@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseFirestore
+import SwiftUI
 
 class FeedViewModel: ObservableObject {
     // MARK: - Published Properties
@@ -21,6 +22,10 @@ class FeedViewModel: ObservableObject {
     
     private let databaseService = DatabaseService()
     
+    // MARK: - Environment
+    
+    @ObservedObject var authViewModel: AuthViewModel
+    
     // MARK: - Pagination
     
     private var lastDocument: DocumentSnapshot?
@@ -29,7 +34,8 @@ class FeedViewModel: ObservableObject {
     
     // MARK: - Init
     
-    init() {
+    init(authViewModel: AuthViewModel) {
+        self.authViewModel = authViewModel
         // Initialize with empty posts
     }
     
@@ -45,7 +51,7 @@ class FeedViewModel: ObservableObject {
         hasMorePosts = true
         
         do {
-            let fetchedPosts = try await databaseService.getFeedPosts(userId: AuthViewModel.shared.currentUser?.id ?? "", limit: limit)
+            let fetchedPosts = try await databaseService.getFeedPosts(userId: authViewModel.user?.id ?? "", limit: limit)
             self.posts = fetchedPosts
             // Since we don't have lastDocument in the current implementation, set hasMorePosts based on count
             self.hasMorePosts = fetchedPosts.count >= limit
@@ -69,7 +75,7 @@ class FeedViewModel: ObservableObject {
             // we'll simply get more posts by increasing the limit
             let currentCount = posts.count
             let fetchedPosts = try await databaseService.getFeedPosts(
-                userId: AuthViewModel.shared.currentUser?.id ?? "",
+                userId: authViewModel.user?.id ?? "",
                 limit: currentCount + limit
             )
             
