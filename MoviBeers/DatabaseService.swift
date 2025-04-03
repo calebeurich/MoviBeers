@@ -48,46 +48,28 @@ class DatabaseService {
             // Save to Firestore - using manual encoding
             let beerData = try Firestore.Encoder().encode(beer)
             
-            // Add special handling for simulator
-            var beerId: String = UUID().uuidString // Default fallback ID for simulator
+            // Simple save to Firestore without simulator-specific error handling
+            let docRef = try await db.collection("beers").addDocument(data: beerData)
+            print("✅ Beer saved with ID: \(docRef.documentID)")
+            let beerId = docRef.documentID
             
-            do {
-                let docRef = try await db.collection("beers").addDocument(data: beerData)
-                print("✅ Beer saved with ID: \(docRef.documentID)")
-                beerId = docRef.documentID
-                
-                // Update user stats - also in try/catch block
-                try await updateUserStats(userId: userId, type: .beer)
-                
-                // Create post - also in try/catch block
-                try await createPost(
-                    userId: userId,
-                    type: .beer,
-                    itemId: beerId,
-                    title: name,
-                    subtitle: brand,
-                    imageURL: imageURL,
-                    location: location,
-                    review: review,
-                    rating: rating,
-                    weekNumber: weekNumber,
-                    standardizedId: standardizedId
-                )
-            } catch let error as NSError {
-                // Check if this is the specific AppCheck error in simulator
-                if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 &&
-                   UIDevice.current.isSimulator {
-                    print("⚠️ Caught expected AppCheck error in simulator when saving beer - continuing with local beer object")
-                    print("⚠️ This is only for development in the simulator - the beer is not actually saved to Firestore")
-                    
-                    // For simulator development only - we'll skip the Firestore operations but return a beer object
-                    // so the user can continue using the app
-                } else {
-                    // For any other error, or on a real device, propagate the error
-                    print("🔴 Failed to save beer: \(error.localizedDescription)")
-                    throw error
-                }
-            }
+            // Update user stats
+            try await updateUserStats(userId: userId, type: .beer)
+            
+            // Create post
+            try await createPost(
+                userId: userId,
+                type: .beer,
+                itemId: beerId,
+                title: name,
+                subtitle: brand,
+                imageURL: imageURL,
+                location: location,
+                review: review,
+                rating: rating,
+                weekNumber: weekNumber,
+                standardizedId: standardizedId
+            )
             
             // Get beer with document ID
             var beerWithId = beer
@@ -154,47 +136,29 @@ class DatabaseService {
             // Save to Firestore - using manual encoding
             let movieData = try Firestore.Encoder().encode(movie)
             
-            // Add special handling for simulator
-            var movieId: String = UUID().uuidString // Default fallback ID for simulator
+            // Simple save to Firestore without simulator-specific error handling
+            let docRef = try await db.collection("movies").addDocument(data: movieData)
+            print("✅ Movie saved with ID: \(docRef.documentID)")
+            let movieId = docRef.documentID
             
-            do {
-                let docRef = try await db.collection("movies").addDocument(data: movieData)
-                print("✅ Movie saved with ID: \(docRef.documentID)")
-                movieId = docRef.documentID
-                
-                // Update user stats - also in try/catch block
-                try await updateUserStats(userId: userId, type: .movie)
-                
-                // Create post - also in try/catch block
-                let subtitleText = director ?? (year != nil ? "\(year!)" : "")
-                try await createPost(
-                    userId: userId,
-                    type: .movie,
-                    itemId: movieId,
-                    title: title,
-                    subtitle: subtitleText,
-                    imageURL: posterURL,
-                    location: location,
-                    review: review,
-                    rating: rating,
-                    weekNumber: weekNumber,
-                    standardizedId: standardizedId
-                )
-            } catch let error as NSError {
-                // Check if this is the specific AppCheck error in simulator
-                if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 &&
-                   UIDevice.current.isSimulator {
-                    print("⚠️ Caught expected AppCheck error in simulator when saving movie - continuing with local movie object")
-                    print("⚠️ This is only for development in the simulator - the movie is not actually saved to Firestore")
-                    
-                    // For simulator development only - we'll skip the Firestore operations but return a movie object
-                    // so the user can continue using the app
-                } else {
-                    // For any other error, or on a real device, propagate the error
-                    print("🔴 Failed to save movie: \(error.localizedDescription)")
-                    throw error
-                }
-            }
+            // Update user stats
+            try await updateUserStats(userId: userId, type: .movie)
+            
+            // Create post
+            let subtitleText = director ?? (year != nil ? "\(year!)" : "")
+            try await createPost(
+                userId: userId,
+                type: .movie,
+                itemId: movieId,
+                title: title,
+                subtitle: subtitleText,
+                imageURL: posterURL,
+                location: location,
+                review: review,
+                rating: rating,
+                weekNumber: weekNumber,
+                standardizedId: standardizedId
+            )
             
             // Get movie with document ID
             var movieWithId = movie
@@ -236,14 +200,21 @@ class DatabaseService {
     
     private func createPost(userId: String, type: PostType, itemId: String, title: String, subtitle: String?, imageURL: String?, location: String?, review: String?, rating: Int?, weekNumber: Int, standardizedId: String? = nil) async throws {
         do {
-            // Get user data for the post
-            let userDoc = try await db.collection("users").document(userId).getDocument()
-            let userData = userDoc.data()
+            print("🔄 Creating post for \(type): \(title), user: \(userId)")
             
+            // Get user data for the post
+            print("👤 Fetching user data for post...")
+            let userDoc = try await db.collection("users").document(userId).getDocument()
+            guard let userData = userDoc.data() else {
+                print("🔴 User data not found for ID: \(userId)")
+                throw DatabaseError.saveError
+            }
+            
+            print("✅ User data fetched. Creating post object...")
             let post = Post(
                 userId: userId,
-                username: userData?["username"] as? String ?? "Unknown User",
-                userProfileImage: userData?["profileImageURL"] as? String,
+                username: userData["username"] as? String ?? "Unknown User",
+                userProfileImage: userData["profileImageURL"] as? String,
                 type: type,
                 itemId: itemId,
                 title: title,
@@ -258,57 +229,47 @@ class DatabaseService {
             )
             
             // Save to Firestore - using manual encoding
+            print("💾 Encoding post data...")
             let postData = try Firestore.Encoder().encode(post)
-            try await db.collection("posts").addDocument(data: postData)
-            print("✅ Post created for \(type): \(title)")
-        } catch {
+            
+            print("📤 Saving post to Firestore...")
+            let postRef = try await db.collection("posts").addDocument(data: postData)
+            print("✅ Post created with ID: \(postRef.documentID)")
+        } catch let error as NSError {
             print("🔴 Error creating post: \(error.localizedDescription)")
+            print("🔴 Error domain: \(error.domain), code: \(error.code)")
+            print("🔴 Error details: \(error.userInfo)")
             throw DatabaseError.saveError
         }
     }
     
     func getFeedPosts(userId: String, limit: Int = 30) async throws -> [Post] {
         do {
+            print("📊 Getting feed posts for user: \(userId), limit: \(limit)")
+            
             // Get user's following list
             let userDoc = try await db.collection("users").document(userId).getDocument()
             guard let userData = userDoc.data(), let following = userData["following"] as? [String] else {
+                print("⚠️ No following data found, returning user's own posts")
                 // If no following, just return the user's own posts
                 return try await getUserPosts(userId: userId, limit: limit)
             }
+            
+            print("👥 User is following \(following.count) people")
             
             // Combine the user's ID with their following for the feed
             var userIds = following
             userIds.append(userId)
             
             // Query posts from followed users and self
+            print("🔍 Querying posts from \(userIds.count) users")
             let snapshot = try await db.collection("posts")
                 .whereField("userId", in: userIds)
                 .order(by: "createdAt", descending: true)
                 .limit(to: limit)
                 .getDocuments()
             
-            return snapshot.documents.compactMap { document in
-                do {
-                    var post = try Firestore.Decoder().decode(Post.self, from: document.data())
-                    post.id = document.documentID
-                    return post
-                } catch {
-                    print("Error decoding post: \(error)")
-                    return nil
-                }
-            }
-        } catch {
-            throw DatabaseError.fetchError
-        }
-    }
-    
-    func getUserPosts(userId: String, limit: Int = 10) async throws -> [Post] {
-        do {
-            let snapshot = try await db.collection("posts")
-                .whereField("userId", isEqualTo: userId)
-                .order(by: "createdAt", descending: true)
-                .limit(to: limit)
-                .getDocuments()
+            print("✅ Query returned \(snapshot.documents.count) posts")
             
             return snapshot.documents.compactMap { document in
                 do {
@@ -316,11 +277,40 @@ class DatabaseService {
                     post.id = document.documentID
                     return post
                 } catch {
-                    print("Error decoding post: \(error)")
+                    print("🔴 Error decoding post: \(error)")
                     return nil
                 }
             }
         } catch {
+            print("🔴 Error in getFeedPosts: \(error.localizedDescription)")
+            throw DatabaseError.fetchError
+        }
+    }
+    
+    func getUserPosts(userId: String, limit: Int = 10) async throws -> [Post] {
+        do {
+            print("📊 Getting user posts for user: \(userId), limit: \(limit)")
+            
+            let snapshot = try await db.collection("posts")
+                .whereField("userId", isEqualTo: userId)
+                .order(by: "createdAt", descending: true)
+                .limit(to: limit)
+                .getDocuments()
+            
+            print("✅ Query returned \(snapshot.documents.count) user posts")
+            
+            return snapshot.documents.compactMap { document in
+                do {
+                    var post = try Firestore.Decoder().decode(Post.self, from: document.data())
+                    post.id = document.documentID
+                    return post
+                } catch {
+                    print("🔴 Error decoding user post: \(error)")
+                    return nil
+                }
+            }
+        } catch {
+            print("🔴 Error in getUserPosts: \(error.localizedDescription)")
             throw DatabaseError.fetchError
         }
     }
@@ -357,50 +347,17 @@ class DatabaseService {
         // Calculate current week start date
         let currentWeekStart = getStartOfCurrentWeek()
         
-        #if targetEnvironment(simulator)
-        do {
-            // Query items for the current week to get the count
-            let collectionName = type == .beer ? "beers" : "movies"
-            let snapshot = try await db.collection(collectionName)
-                .whereField("userId", isEqualTo: userId)
-                .whereField("weekStartDate", isEqualTo: currentWeekStart)
-                .getDocuments()
-            
-            // Week number is the count + 1
-            let weekNumber = snapshot.documents.count + 1
-            
-            return (currentWeekStart, weekNumber)
-        } catch let error as NSError {
-            // Check if this is the specific AppCheck error in simulator
-            if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 &&
-               UIDevice.current.isSimulator {
-                print("⚠️ Caught expected AppCheck error in simulator when calculating week data")
-                print("⚠️ Using default week number 1 for development")
-                
-                // For development only - default to week 1
-                return (currentWeekStart, 1)
-            } else {
-                print("🔴 Error calculating week data: \(error.localizedDescription)")
-                throw DatabaseError.weekCalculationError
-            }
-        }
-        #else
-        do {
-            // Query items for the current week to get the count
-            let collectionName = type == .beer ? "beers" : "movies"
-            let snapshot = try await db.collection(collectionName)
-                .whereField("userId", isEqualTo: userId)
-                .whereField("weekStartDate", isEqualTo: currentWeekStart)
-                .getDocuments()
-            
-            // Week number is the count + 1
-            let weekNumber = snapshot.documents.count + 1
-            
-            return (currentWeekStart, weekNumber)
-        } catch {
-            throw DatabaseError.weekCalculationError
-        }
-        #endif
+        // Query items for the current week to get the count
+        let collectionName = type == .beer ? "beers" : "movies"
+        let snapshot = try await db.collection(collectionName)
+            .whereField("userId", isEqualTo: userId)
+            .whereField("weekStartDate", isEqualTo: currentWeekStart)
+            .getDocuments()
+        
+        // Week number is the count + 1
+        let weekNumber = snapshot.documents.count + 1
+        
+        return (currentWeekStart, weekNumber)
     }
     
     private func getStartOfCurrentWeek() -> Date {

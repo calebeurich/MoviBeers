@@ -35,14 +35,19 @@ struct FeedView: View {
             }
             .navigationTitle("Feed")
             .refreshable {
-                await viewModel.loadPosts()
+                if authViewModel.isAuthenticated {
+                    await viewModel.loadPosts()
+                }
             }
             .onAppear {
                 // Update the viewModel to use the correct authViewModel
                 viewModel.authViewModel = authViewModel
                 
                 Task {
-                    await viewModel.loadPosts()
+                    // Only load posts if the user is authenticated
+                    if authViewModel.isAuthenticated {
+                        await viewModel.loadPosts()
+                    }
                 }
             }
             .alert("Error", isPresented: $viewModel.showError) {

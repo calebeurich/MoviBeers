@@ -45,18 +45,30 @@ class FeedViewModel: ObservableObject {
     func loadPosts() async {
         guard !isLoading else { return }
         
+        // Check if user is authenticated and has a valid ID
+        guard let userId = authViewModel.user?.id, !userId.isEmpty else {
+            print("⚠️ Cannot load posts: No authenticated user or empty user ID")
+            self.posts = []
+            return
+        }
+        
+        print("🔄 Starting to load posts for user: \(userId)")
         isLoading = true
         posts = []
         lastDocument = nil
         hasMorePosts = true
         
         do {
-            let fetchedPosts = try await databaseService.getFeedPosts(userId: authViewModel.user?.id ?? "", limit: limit)
+            print("📥 Fetching posts from database service...")
+            let fetchedPosts = try await databaseService.getFeedPosts(userId: userId, limit: limit)
+            print("✅ Fetched \(fetchedPosts.count) posts")
+            
             self.posts = fetchedPosts
             // Since we don't have lastDocument in the current implementation, set hasMorePosts based on count
             self.hasMorePosts = fetchedPosts.count >= limit
             self.isLoading = false
         } catch {
+            print("🔴 Error loading posts: \(error.localizedDescription)")
             self.errorMessage = "Failed to load posts: \(error.localizedDescription)"
             self.showError = true
             self.isLoading = false
@@ -68,6 +80,12 @@ class FeedViewModel: ObservableObject {
         // Return if already loading or no more posts
         guard !isLoading && !isLoadingMore && hasMorePosts else { return }
         
+        // Check if user is authenticated and has a valid ID
+        guard let userId = authViewModel.user?.id, !userId.isEmpty else {
+            print("⚠️ Cannot load more posts: No authenticated user or empty user ID")
+            return
+        }
+        
         isLoadingMore = true
         
         do {
@@ -75,7 +93,7 @@ class FeedViewModel: ObservableObject {
             // we'll simply get more posts by increasing the limit
             let currentCount = posts.count
             let fetchedPosts = try await databaseService.getFeedPosts(
-                userId: authViewModel.user?.id ?? "",
+                userId: userId,
                 limit: currentCount + limit
             )
             
