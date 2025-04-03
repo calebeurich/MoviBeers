@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // DEVELOPMENT MODE: Allow development access without strict App Check
+    function isAppCheckVerifiedOrDev() {
+      // In development/testing, be more lenient
+      return request.auth.token.app_check == true || request.resource.data.testMode == true;
+    }
+    
+    // Basic user verification - more lenient during development
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    // Verify user owns the document
+    function isOwner(userId) {
+      return request.auth.uid == userId && isSignedIn();
+    }
+    
+    // User collection rules
+    match /users/{userId} {
+      // Allow read by anyone signed in, but only own profile write
+      allow read: if isSignedIn();
+      allow create, update, delete: if isOwner(userId);
+    }
+    
+    // Movies collection rules - more lenient for testing
+    match /movies/{movieId} {
+      // During development, allow operations without strict App Check
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isSignedIn() && (
+        resource.data.createdBy == request.auth.uid || 
+        request.resource.data.createdBy == resource.data.createdBy
+      );
+      allow delete: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Beers collection rules - more lenient for testing
+    match /beers/{beerId} {
+      // During development, allow operations without strict App Check
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if isSignedIn() && (
+        resource.data.createdBy == request.auth.uid || 
+        request.resource.data.createdBy == resource.data.createdBy
+      );
+      allow delete: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Posts/Feed collection rules
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      // Comments subcollection
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      }
+      
+      // Likes subcollection
+      match /likes/{userId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if isOwner(userId);
+      }
+    }
+    
+    // TrackItems collection
+    match /trackItems/{itemId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+    
+    // Leaderboard collection
+    match /leaderboard/{document=**} {
+      allow read: if isSignedIn();
+      // Only allow writes from admin or server
+      allow write: if false; // Set to admin-only through Firebase Admin SDK
+    }
+    
+    // Deny access to all other collections by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+} 

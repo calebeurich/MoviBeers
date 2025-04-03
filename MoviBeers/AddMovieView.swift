@@ -18,179 +18,20 @@ struct AddMovieView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // MARK: - Movie Info Section
-                Section("Movie Info") {
-                    TextField("Movie Title", text: $viewModel.title)
-                        .onChange(of: viewModel.title) { _ in
-                            viewModel.searchMovies()
-                        }
-                    
-                    // Show suggestions if available
-                    if !viewModel.movieSuggestions.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 12) {
-                                ForEach(viewModel.movieSuggestions) { suggestion in
-                                    MovieSuggestionCard(
-                                        suggestion: suggestion,
-                                        isSelected: viewModel.selectedSuggestion?.id == suggestion.id,
-                                        onSelect: {
-                                            viewModel.selectSuggestion(suggestion)
-                                        }
-                                    )
-                                }
-                            }
-                            .padding(.vertical, 8)
-                        }
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    }
-                    
-                    // Loading indicator
-                    if viewModel.isSearching {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
-                        }
-                    }
-                    
-                    // Selected suggestion badge
-                    if let suggestion = viewModel.selectedSuggestion {
-                        HStack {
-                            Text("Using standardized movie: \(suggestion.title)")
-                                .font(.caption)
-                            
-                            Spacer()
-                            
-                            Button {
-                                viewModel.clearSelection()
-                            } label: {
-                                Text("Clear")
-                                    .font(.caption)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                    
-                    TextField("Director (Optional)", text: $viewModel.director)
-                    TextField("Year (Optional)", text: $viewModel.year)
-                        .keyboardType(.numberPad)
-                }
-                
-                // MARK: - Rating Section
-                Section("Rating") {
-                    VStack {
-                        Text("Rating: \(Int(viewModel.rating))/5")
-                        
-                        HStack {
-                            Text("1")
-                            Slider(value: $viewModel.rating, in: 1...5, step: 1)
-                            Text("5")
-                        }
-                        
-                        // Star display
-                        HStack {
-                            ForEach(1..<6) { star in
-                                Image(systemName: star <= Int(viewModel.rating) ? "star.fill" : "star")
-                                    .foregroundColor(.red)
-                            }
-                        }
-                    }
-                }
-                
-                // MARK: - Notes Section
-                Section("Notes (Optional)") {
-                    TextEditor(text: $viewModel.notes)
-                        .frame(minHeight: 100)
-                }
-                
-                // MARK: - Photo Section
-                Section("Photo (Optional)") {
-                    // Photo picker button
-                    // Only show if there's no suggestion with an image or if the user wants a custom image
-                    if viewModel.selectedSuggestion?.imageURL == nil || viewModel.selectedImage != nil {
-                        PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                            HStack {
-                                Image(systemName: "photo")
-                                Text(viewModel.selectedImage == nil ? "Add Photo" : "Change Photo")
-                            }
-                        }
-                    }
-                    
-                    // Show selected image preview (either from suggestion or user selection)
-                    if let image = viewModel.selectedImage {
-                        HStack {
-                            Spacer()
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxHeight: 200)
-                            Spacer()
-                        }
-                        
-                        Button(role: .destructive) {
-                            viewModel.selectedImage = nil
-                            photoPickerItem = nil
-                        } label: {
-                            HStack {
-                                Spacer()
-                                Text("Remove Photo")
-                                Spacer()
-                            }
-                        }
-                    } else if let suggestion = viewModel.selectedSuggestion, let imageURL = suggestion.imageURL {
-                        VStack {
-                            AsyncImage(url: URL(string: imageURL)) { phase in
-                                switch phase {
-                                case .empty:
-                                    ProgressView()
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(maxHeight: 200)
-                                case .failure:
-                                    Image(systemName: "film")
-                                        .font(.largeTitle)
-                                        .foregroundColor(.secondary)
-                                @unknown default:
-                                    EmptyView()
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            
-                            Text("Poster from TMDB")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.top, 4)
-                            
-                            // Allow user to add a custom photo instead
-                            PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                                Text("Use Custom Photo Instead")
-                                    .font(.caption)
-                            }
-                        }
-                    }
-                }
-                
-                // MARK: - Add Button
-                Section {
-                    Button {
-                        guard let userId = authViewModel.currentUser?.id else { return }
-                        viewModel.addMovie(userId: userId)
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if viewModel.isLoading {
-                                ProgressView()
-                            } else {
-                                Text("Add Movie")
-                                    .bold()
-                            }
-                            Spacer()
-                        }
-                    }
-                    .disabled(viewModel.isLoading)
-                }
+                // Use extracted components for each section
+                MovieInfoSection(viewModel: viewModel)
+                MovieRatingSection(rating: $viewModel.rating)
+                MovieNotesSection(notes: $viewModel.notes)
+                MoviePhotoSection(
+                    selectedImage: $viewModel.selectedImage,
+                    photoPickerItem: $photoPickerItem,
+                    selectedSuggestion: viewModel.selectedSuggestion
+                )
+                AddMovieButtonSection(
+                    isLoading: viewModel.isLoading,
+                    authViewModel: authViewModel,
+                    addMovie: viewModel.addMovie
+                )
             }
             .navigationTitle("Add Movie")
             .navigationBarTitleDisplayMode(.inline)
@@ -214,12 +55,115 @@ struct AddMovieView: View {
                 Text(viewModel.successMessage ?? "Movie added successfully!")
             }
             .onChange(of: photoPickerItem) { newValue in
-                Task {
-                    if let data = try? await newValue?.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
+                if let newItem = newValue {
+                    loadTransferableImage(from: newItem)
+                }
+            }
+        }
+    }
+    
+    // Helper function to load image from PhotosPickerItem
+    private func loadTransferableImage(from item: PhotosPickerItem) {
+        Task {
+            do {
+                if let data = try await item.loadTransferable(type: Data.self) {
+                    if let image = UIImage(data: data) {
                         await MainActor.run {
                             viewModel.selectedImage = image
                         }
+                    }
+                }
+            } catch {
+                print("Error loading image: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Movie Info Section
+struct MovieInfoSection: View {
+    @ObservedObject var viewModel: AddMovieViewModel
+    
+    var body: some View {
+        Section("Movie Info") {
+            TextField("Movie Title", text: $viewModel.title)
+                .onChange(of: viewModel.title) { _ in
+                    viewModel.searchMovies()
+                }
+            
+            // Show suggestions if available
+            if !viewModel.movieSuggestions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(viewModel.movieSuggestions) { suggestion in
+                            MovieSuggestionCard(
+                                suggestion: suggestion,
+                                isSelected: viewModel.selectedSuggestion?.id == suggestion.id,
+                                onSelect: {
+                                    viewModel.selectSuggestion(suggestion)
+                                }
+                            )
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            }
+            
+            // Loading indicator
+            if viewModel.isSearching {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+            }
+            
+            // Selected suggestion badge
+            if let suggestion = viewModel.selectedSuggestion {
+                HStack {
+                    Text("Using standardized movie: \(suggestion.title)")
+                        .font(.caption)
+                    
+                    Spacer()
+                    
+                    Button {
+                        viewModel.clearSelection()
+                    } label: {
+                        Text("Clear")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            
+            TextField("Director (Optional)", text: $viewModel.director)
+            TextField("Year (Optional)", text: $viewModel.year)
+                .keyboardType(.numberPad)
+        }
+    }
+}
+
+// MARK: - Rating Section
+struct MovieRatingSection: View {
+    @Binding var rating: Double
+    
+    var body: some View {
+        Section("Rating") {
+            VStack {
+                Text("Rating: \(Int(rating))/5")
+                
+                HStack {
+                    Text("1")
+                    Slider(value: $rating, in: 1...5, step: 1)
+                    Text("5")
+                }
+                
+                // Star display
+                HStack {
+                    ForEach(1..<6) { star in
+                        Image(systemName: star <= Int(rating) ? "star.fill" : "star")
+                            .foregroundColor(.red)
                     }
                 }
             }
@@ -227,8 +171,124 @@ struct AddMovieView: View {
     }
 }
 
-// MARK: - Movie Suggestion Card
+// MARK: - Notes Section
+struct MovieNotesSection: View {
+    @Binding var notes: String
+    
+    var body: some View {
+        Section("Notes (Optional)") {
+            TextEditor(text: $notes)
+                .frame(minHeight: 100)
+        }
+    }
+}
 
+// MARK: - Photo Section
+struct MoviePhotoSection: View {
+    @Binding var selectedImage: UIImage?
+    @Binding var photoPickerItem: PhotosPickerItem?
+    let selectedSuggestion: MovieSuggestion?
+    
+    var body: some View {
+        Section("Photo (Optional)") {
+            // Photo picker button
+            // Only show if there's no suggestion with an image or if the user wants a custom image
+            if selectedSuggestion?.imageURL == nil || selectedImage != nil {
+                PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                    HStack {
+                        Image(systemName: "photo")
+                        Text(selectedImage == nil ? "Add Photo" : "Change Photo")
+                    }
+                }
+            }
+            
+            // Show selected image preview (either from suggestion or user selection)
+            if let image = selectedImage {
+                HStack {
+                    Spacer()
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 200)
+                    Spacer()
+                }
+                
+                Button(role: .destructive) {
+                    selectedImage = nil
+                    photoPickerItem = nil
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("Remove Photo")
+                        Spacer()
+                    }
+                }
+            } else if let suggestion = selectedSuggestion, let imageURL = suggestion.imageURL {
+                VStack {
+                    AsyncImage(url: URL(string: imageURL)) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 200)
+                        case .failure:
+                            Image(systemName: "film")
+                                .font(.largeTitle)
+                                .foregroundColor(.secondary)
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    
+                    Text("Poster from TMDB")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
+                    
+                    // Allow user to add a custom photo instead
+                    PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                        Text("Use Custom Photo Instead")
+                            .font(.caption)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Add Button Section
+struct AddMovieButtonSection: View {
+    let isLoading: Bool
+    let authViewModel: AuthViewModel
+    let addMovie: (String) -> Void
+    
+    var body: some View {
+        Section {
+            Button {
+                guard let userId = authViewModel.user?.id else { return }
+                addMovie(userId)
+            } label: {
+                HStack {
+                    Spacer()
+                    if isLoading {
+                        ProgressView()
+                    } else {
+                        Text("Add Movie")
+                            .bold()
+                    }
+                    Spacer()
+                }
+            }
+            .disabled(isLoading)
+        }
+    }
+}
+
+// MARK: - Movie Suggestion Card
 struct MovieSuggestionCard: View {
     let suggestion: MovieSuggestion
     let isSelected: Bool

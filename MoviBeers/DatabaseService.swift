@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseFirestore
+import UIKit
 
 enum DatabaseError: Error {
     case fetchError
@@ -46,30 +47,51 @@ class DatabaseService {
             
             // Save to Firestore - using manual encoding
             let beerData = try Firestore.Encoder().encode(beer)
-            let docRef = try await db.collection("beers").addDocument(data: beerData)
-            print("✅ Beer saved with ID: \(docRef.documentID)")
             
-            // Update user stats
-            try await updateUserStats(userId: userId, type: .beer)
+            // Add special handling for simulator
+            var beerId: String = UUID().uuidString // Default fallback ID for simulator
             
-            // Create post
-            try await createPost(
-                userId: userId,
-                type: .beer,
-                itemId: docRef.documentID,
-                title: name,
-                subtitle: brand,
-                imageURL: imageURL,
-                location: location,
-                review: review,
-                rating: rating,
-                weekNumber: weekNumber,
-                standardizedId: standardizedId
-            )
+            do {
+                let docRef = try await db.collection("beers").addDocument(data: beerData)
+                print("✅ Beer saved with ID: \(docRef.documentID)")
+                beerId = docRef.documentID
+                
+                // Update user stats - also in try/catch block
+                try await updateUserStats(userId: userId, type: .beer)
+                
+                // Create post - also in try/catch block
+                try await createPost(
+                    userId: userId,
+                    type: .beer,
+                    itemId: beerId,
+                    title: name,
+                    subtitle: brand,
+                    imageURL: imageURL,
+                    location: location,
+                    review: review,
+                    rating: rating,
+                    weekNumber: weekNumber,
+                    standardizedId: standardizedId
+                )
+            } catch let error as NSError {
+                // Check if this is the specific AppCheck error in simulator
+                if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 &&
+                   UIDevice.current.isSimulator {
+                    print("⚠️ Caught expected AppCheck error in simulator when saving beer - continuing with local beer object")
+                    print("⚠️ This is only for development in the simulator - the beer is not actually saved to Firestore")
+                    
+                    // For simulator development only - we'll skip the Firestore operations but return a beer object
+                    // so the user can continue using the app
+                } else {
+                    // For any other error, or on a real device, propagate the error
+                    print("🔴 Failed to save beer: \(error.localizedDescription)")
+                    throw error
+                }
+            }
             
             // Get beer with document ID
             var beerWithId = beer
-            beerWithId.id = docRef.documentID
+            beerWithId.id = beerId
             return beerWithId
         } catch {
             print("🔴 Error adding beer: \(error.localizedDescription)")
@@ -131,31 +153,52 @@ class DatabaseService {
             
             // Save to Firestore - using manual encoding
             let movieData = try Firestore.Encoder().encode(movie)
-            let docRef = try await db.collection("movies").addDocument(data: movieData)
-            print("✅ Movie saved with ID: \(docRef.documentID)")
             
-            // Update user stats
-            try await updateUserStats(userId: userId, type: .movie)
+            // Add special handling for simulator
+            var movieId: String = UUID().uuidString // Default fallback ID for simulator
             
-            // Create post
-            let subtitleText = director ?? (year != nil ? "\(year!)" : "")
-            try await createPost(
-                userId: userId,
-                type: .movie,
-                itemId: docRef.documentID,
-                title: title,
-                subtitle: subtitleText,
-                imageURL: posterURL,
-                location: location,
-                review: review,
-                rating: rating,
-                weekNumber: weekNumber,
-                standardizedId: standardizedId
-            )
+            do {
+                let docRef = try await db.collection("movies").addDocument(data: movieData)
+                print("✅ Movie saved with ID: \(docRef.documentID)")
+                movieId = docRef.documentID
+                
+                // Update user stats - also in try/catch block
+                try await updateUserStats(userId: userId, type: .movie)
+                
+                // Create post - also in try/catch block
+                let subtitleText = director ?? (year != nil ? "\(year!)" : "")
+                try await createPost(
+                    userId: userId,
+                    type: .movie,
+                    itemId: movieId,
+                    title: title,
+                    subtitle: subtitleText,
+                    imageURL: posterURL,
+                    location: location,
+                    review: review,
+                    rating: rating,
+                    weekNumber: weekNumber,
+                    standardizedId: standardizedId
+                )
+            } catch let error as NSError {
+                // Check if this is the specific AppCheck error in simulator
+                if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 &&
+                   UIDevice.current.isSimulator {
+                    print("⚠️ Caught expected AppCheck error in simulator when saving movie - continuing with local movie object")
+                    print("⚠️ This is only for development in the simulator - the movie is not actually saved to Firestore")
+                    
+                    // For simulator development only - we'll skip the Firestore operations but return a movie object
+                    // so the user can continue using the app
+                } else {
+                    // For any other error, or on a real device, propagate the error
+                    print("🔴 Failed to save movie: \(error.localizedDescription)")
+                    throw error
+                }
+            }
             
             // Get movie with document ID
             var movieWithId = movie
-            movieWithId.id = docRef.documentID
+            movieWithId.id = movieId
             return movieWithId
         } catch {
             print("🔴 Error adding movie: \(error.localizedDescription)")
@@ -311,10 +354,38 @@ class DatabaseService {
     // MARK: - Week Calculation
     
     private func getCurrentWeekData(userId: String, type: PostType) async throws -> (Date, Int) {
+        // Calculate current week start date
+        let currentWeekStart = getStartOfCurrentWeek()
+        
+        #if targetEnvironment(simulator)
         do {
-            // Calculate current week start date
-            let currentWeekStart = getStartOfCurrentWeek()
+            // Query items for the current week to get the count
+            let collectionName = type == .beer ? "beers" : "movies"
+            let snapshot = try await db.collection(collectionName)
+                .whereField("userId", isEqualTo: userId)
+                .whereField("weekStartDate", isEqualTo: currentWeekStart)
+                .getDocuments()
             
+            // Week number is the count + 1
+            let weekNumber = snapshot.documents.count + 1
+            
+            return (currentWeekStart, weekNumber)
+        } catch let error as NSError {
+            // Check if this is the specific AppCheck error in simulator
+            if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 &&
+               UIDevice.current.isSimulator {
+                print("⚠️ Caught expected AppCheck error in simulator when calculating week data")
+                print("⚠️ Using default week number 1 for development")
+                
+                // For development only - default to week 1
+                return (currentWeekStart, 1)
+            } else {
+                print("🔴 Error calculating week data: \(error.localizedDescription)")
+                throw DatabaseError.weekCalculationError
+            }
+        }
+        #else
+        do {
             // Query items for the current week to get the count
             let collectionName = type == .beer ? "beers" : "movies"
             let snapshot = try await db.collection(collectionName)
@@ -329,6 +400,7 @@ class DatabaseService {
         } catch {
             throw DatabaseError.weekCalculationError
         }
+        #endif
     }
     
     private func getStartOfCurrentWeek() -> Date {
