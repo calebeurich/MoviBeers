@@ -12,10 +12,22 @@ struct ContentView: View {
     
     var body: some View {
         Group {
-            if authViewModel.isAuthenticated {
+            switch authViewModel.authState {
+            case .signedIn:
                 MainTabView()
-            } else {
+                    .onAppear {
+                        print("📱 Showing MainTabView - user is authenticated")
+                    }
+            case .signedOut:
                 LoginView()
+                    .onAppear {
+                        print("📱 Showing LoginView - user is NOT authenticated")
+                    }
+            case .loading:
+                LoadingView()
+                    .onAppear {
+                        print("📱 Showing LoadingView - auth state is loading")
+                    }
             }
         }
     }
@@ -43,6 +55,20 @@ struct MainTabView: View {
                 .tabItem {
                     Label("Leaderboard", systemImage: "trophy")
                 }
+        }
+    }
+}
+
+struct LoadingView: View {
+    var body: some View {
+        VStack {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                .scaleEffect(2)
+            
+            Text("Loading...")
+                .font(.headline)
+                .padding(.top, 20)
         }
     }
 }

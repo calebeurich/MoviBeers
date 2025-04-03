@@ -34,46 +34,8 @@ class AuthService {
             // Fetch user data from Firestore
             let userId = authResult.user.uid
             
-            #if targetEnvironment(simulator)
-            // Special handling for simulator environment to handle AppCheck issues
-            do {
-                return try await fetchUser(userId: userId)
-            } catch let error as NSError {
-                // Check if this is the specific AppCheck error in simulator
-                if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 &&
-                   UIDevice.current.isSimulator {
-                    print("⚠️ Caught expected AppCheck error in simulator during sign-in - creating temporary user")
-                    
-                    // For simulator development only - create a temporary user object
-                    // This allows sign-in to work even if Firestore access fails due to AppCheck
-                    print("✅ Created temporary user for simulator testing")
-                    return User(
-                        id: userId,
-                        username: "TestUser",
-                        email: email,
-                        profileImageURL: nil,
-                        bio: nil,
-                        joinDate: Date(),
-                        currentWeekBeers: 0,
-                        currentWeekMovies: 0,
-                        totalBeers: 0,
-                        totalMovies: 0,
-                        currentStreak: 0,
-                        recordStreak: 0,
-                        following: [],
-                        followers: [],
-                        weeklyHistory: []
-                    )
-                } else {
-                    // Some other Firestore error - rethrow it
-                    print("🔴 Error fetching user data after sign-in: \(error.localizedDescription)")
-                    throw error
-                }
-            }
-            #else
-            // Regular flow for physical devices
+            // Standard flow for all environments
             return try await fetchUser(userId: userId)
-            #endif
         } catch let error as NSError {
             print("🔴 Sign-in error: \(error.localizedDescription)")
             print("🔴 Error domain: \(error.domain), code: \(error.code)")
@@ -86,36 +48,7 @@ class AuthService {
         do {
             print("Starting sign up process for email: \(email), username: \(username)")
             
-            #if targetEnvironment(simulator)
-            // Special handling for simulator environment to handle AppCheck issues
-            var usernameExists = false
-            do {
-                print("Checking if username is available (simulator)...")
-                let usernameQuery = try await db.collection("users")
-                    .whereField("username", isEqualTo: username)
-                    .getDocuments()
-                
-                usernameExists = !usernameQuery.documents.isEmpty
-            } catch let error as NSError {
-                // Check if this is the specific AppCheck error in simulator
-                if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 &&
-                   UIDevice.current.isSimulator {
-                    print("⚠️ Caught expected AppCheck error in simulator - continuing with username check workaround")
-                    // We'll proceed with the assumption username is available in the simulator
-                    // This is only for development - not production
-                    usernameExists = false
-                } else {
-                    // Some other Firestore error - rethrow it
-                    throw error
-                }
-            }
-            
-            if usernameExists {
-                print("🔴 Username already exists")
-                throw AuthError.signUpError // Username already in use
-            }
-            #else
-            // Regular flow for physical devices
+            // Check if username is available
             print("Checking if username is available...")
             let usernameQuery = try await db.collection("users")
                 .whereField("username", isEqualTo: username)
@@ -125,7 +58,6 @@ class AuthService {
                 print("🔴 Username already exists")
                 throw AuthError.signUpError // Username already in use
             }
-            #endif
             
             print("Username is available, proceeding with auth user creation")
             
@@ -158,23 +90,10 @@ class AuthService {
             print("Encoding user data...")
             let userData = try Firestore.Encoder().encode(newUser)
             
-            do {
-                print("Writing to Firestore collection 'users', document: \(userId)")
-                try await db.collection("users").document(userId).setData(userData)
-                print("✅ User document created in Firestore")
-            } catch let error as NSError {
-                // Check if this is the specific AppCheck error in simulator
-                if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 &&
-                   UIDevice.current.isSimulator {
-                    print("⚠️ Caught expected AppCheck error in simulator when creating user document - continuing with user creation")
-                    // We'll proceed with the user object even though we couldn't save to Firestore
-                    // This is only for simulator development
-                } else {
-                    // For any other error, or on a real device, propagate the error
-                    print("🔴 Failed to create user document: \(error.localizedDescription)")
-                    throw error
-                }
-            }
+            // Save user to Firestore
+            print("Writing to Firestore collection 'users', document: \(userId)")
+            try await db.collection("users").document(userId).setData(userData)
+            print("✅ User document created in Firestore")
             
             return newUser
         } catch let error as NSError {
@@ -209,32 +128,75 @@ class AuthService {
                 return user
             } else {
                 print("🔴 User document not found in Firestore")
-                throw AuthError.userNotFound
-            }
-        } catch let error as NSError {
-            print("🔴 Error fetching user: \(error.localizedDescription)")
-            print("🔴 Error domain: \(error.domain), code: \(error.code)")
-            print("🔴 Error details: \(error.userInfo)")
-            
-            // Detect AppCheck errors specifically for better error messages
-            if error.domain == "FIRFirestoreErrorDomain" && error.code == 7 {
-                if UIDevice.current.isSimulator {
-                    print("⚠️ AppCheck verification failed in simulator - this is expected during development")
+                
+                // Handle case where Auth user exists but Firestore document doesn't
+                // This can happen if account was just created or data wasn't properly synced
+                if auth.currentUser != nil {
+                    print("⚠️ Auth user exists but no Firestore document - creating default user document")
+                    
+                    // Get email from Auth
+                    let email = auth.currentUser?.email ?? "unknown@email.com"
+                    
+                    // Create a basic user object
+                    let newUser = User(
+                        id: userId,
+                        username: "User\(userId.prefix(6))",  // Create a default username
+                        email: email,
+                        profileImageURL: nil,
+                        bio: nil,
+                        joinDate: Date(),
+                        currentWeekBeers: 0,
+                        currentWeekMovies: 0,
+                        totalBeers: 0,
+                        totalMovies: 0,
+                        currentStreak: 0,
+                        recordStreak: 0,
+                        following: [],
+                        followers: [],
+                        weeklyHistory: []
+                    )
+                    
+                    // Create the user document
+                    let userData = try Firestore.Encoder().encode(newUser)
+                    try await db.collection("users").document(userId).setData(userData)
+                    print("✅ Created new user document for existing auth user")
+                    
+                    return newUser
                 } else {
-                    print("🔴 AppCheck verification failed on real device - check your Firebase AppCheck configuration")
+                    throw AuthError.userNotFound
                 }
             }
-            
+        } catch {
+            print("🔴 Error fetching user: \(error.localizedDescription)")
             throw AuthError.userNotFound
         }
     }
     
-    func updateProfile(userId: String, username: String?, bio: String?, profileImageURL: String?) async throws {
+    func updateProfile(userId: String, username: String? = nil, bio: String? = nil, profileImageURL: String? = nil) async throws {
         do {
+            // Create batch to update in a single transaction
+            let batch = db.batch()
+            let userRef = db.collection("users").document(userId)
+            
+            // Build user update data
             var updateData: [String: Any] = [:]
             
             if let username = username {
                 updateData["username"] = username
+                
+                // Update all posts by this user to have the new username
+                let postsSnapshot = try await db.collection("posts")
+                    .whereField("userId", isEqualTo: userId)
+                    .getDocuments()
+                
+                for document in postsSnapshot.documents {
+                    let postRef = db.collection("posts").document(document.documentID)
+                    batch.updateData([
+                        "username": username
+                    ], forDocument: postRef)
+                }
+                
+                print("Will update username in \(postsSnapshot.documents.count) posts")
             }
             
             if let bio = bio {
@@ -246,9 +208,15 @@ class AuthService {
             }
             
             if !updateData.isEmpty {
-                try await db.collection("users").document(userId).updateData(updateData)
+                // Add user document update to batch
+                batch.updateData(updateData, forDocument: userRef)
+                
+                // Commit all changes
+                try await batch.commit()
+                print("✅ Profile update batch committed successfully")
             }
         } catch {
+            print("🔴 Profile update failed: \(error.localizedDescription)")
             throw AuthError.profileUpdateFailed
         }
     }
@@ -261,6 +229,32 @@ class AuthService {
     
     func isUserAuthenticated() -> Bool {
         return auth.currentUser != nil
+    }
+    
+    // MARK: - Username Validation
+    
+    func isUsernameAvailable(username: String, excludeUserId: String? = nil) async throws -> Bool {
+        do {
+            let query = db.collection("users").whereField("username", isEqualTo: username)
+            let snapshot = try await query.getDocuments()
+            
+            // If no documents found, username is available
+            if snapshot.documents.isEmpty {
+                return true
+            }
+            
+            // If we're excluding a user ID (for example, the current user during an update)
+            if let excludeUserId = excludeUserId {
+                // Username is available only if all documents with this username belong to the excluded user
+                return snapshot.documents.allSatisfy { $0.documentID == excludeUserId }
+            }
+            
+            // Username is taken
+            return false
+        } catch {
+            print("Error checking username availability: \(error.localizedDescription)")
+            throw error
+        }
     }
 }
 
