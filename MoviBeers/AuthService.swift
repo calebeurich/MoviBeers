@@ -46,7 +46,7 @@ class AuthService {
     
     func signUp(email: String, password: String, username: String) async throws -> User {
         do {
-            print("Starting sign up process for email: \(email), username: \(username)")
+            print("Starting sign-up process: \(email), username: \(username)")
             
             // Check if username is available
             print("Checking if username is available...")
@@ -72,7 +72,6 @@ class AuthService {
                 id: userId,
                 username: username,
                 email: email,
-                profileImageURL: nil,
                 bio: nil,
                 joinDate: Date(),
                 currentWeekBeers: 0,
@@ -142,7 +141,6 @@ class AuthService {
                         id: userId,
                         username: "User\(userId.prefix(6))",  // Create a default username
                         email: email,
-                        profileImageURL: nil,
                         bio: nil,
                         joinDate: Date(),
                         currentWeekBeers: 0,
@@ -172,7 +170,7 @@ class AuthService {
         }
     }
     
-    func updateProfile(userId: String, username: String? = nil, bio: String? = nil, profileImageURL: String? = nil) async throws {
+    func updateProfile(userId: String, username: String? = nil, bio: String? = nil) async throws {
         do {
             // Create batch to update in a single transaction
             let batch = db.batch()
@@ -201,10 +199,6 @@ class AuthService {
             
             if let bio = bio {
                 updateData["bio"] = bio
-            }
-            
-            if let profileImageURL = profileImageURL {
-                updateData["profileImageURL"] = profileImageURL
             }
             
             if !updateData.isEmpty {

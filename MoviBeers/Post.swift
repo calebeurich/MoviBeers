@@ -17,12 +17,10 @@ struct Post: Identifiable, Codable {
     var id: String?
     let userId: String
     let username: String
-    let userProfileImage: String?
     let type: PostType
     let itemId: String // ID of the beer or movie
     let title: String // Beer name or movie title
     let subtitle: String? // Brand or director
-    let imageURL: String?
     let location: String?
     let review: String?
     let rating: Int?
@@ -42,12 +40,10 @@ struct Post: Identifiable, Codable {
         case id
         case userId
         case username
-        case userProfileImage
         case type
         case itemId
         case title
         case subtitle
-        case imageURL
         case location
         case review
         case rating

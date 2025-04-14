@@ -29,14 +29,13 @@ class AddMovieViewModel: ObservableObject {
     @Published var showSuccess: Bool = false
     
     // Standardization
-    @Published var movieSuggestions: [MovieSuggestion] = []
-    @Published var isSearching: Bool = false
-    @Published var selectedSuggestion: MovieSuggestion?
+    @Published var standardizedTitle: String = ""
+    @Published var shouldStandardizeTitle: Bool = true
+    @Published var popularSuggestions: [String] = []
     
     // MARK: - Services
     
     private let databaseService: DatabaseService
-    private let storageService: StorageService
     private let apiService: APIService
     
     // MARK: - Debouncing Search
@@ -46,22 +45,28 @@ class AddMovieViewModel: ObservableObject {
     // MARK: - Init
     
     init(databaseService: DatabaseService = DatabaseService(),
-         storageService: StorageService = StorageService(),
          apiService: APIService = APIService()) {
         self.databaseService = databaseService
-        self.storageService = storageService
         self.apiService = apiService
     }
     
     // MARK: - Methods
     
-    func searchMovies() {
+    func standardizeTitle() {
+        if shouldStandardizeTitle && !title.isEmpty {
+            standardizedTitle = apiService.standardizeMovieTitle(title)
+        } else {
+            standardizedTitle = title
+        }
+    }
+    
+    func searchPopularMovies() {
         // Cancel any existing timer
         searchDebounceTimer?.invalidate()
         
         // If the search text is empty, clear suggestions
         if title.isEmpty {
-            self.movieSuggestions = []
+            self.popularSuggestions = []
             return
         }
         
@@ -71,43 +76,24 @@ class AddMovieViewModel: ObservableObject {
             
             // Don't search if text is too short
             guard self.title.count >= 2 else {
-                self.movieSuggestions = []
+                self.popularSuggestions = []
                 return
             }
             
-            // Mark as searching
-            self.isSearching = true
-            
             // Create a task to perform the search
             Task { @MainActor in
-                do {
-                    // Search for movies
-                    let suggestions = try await self.apiService.searchMovies(query: self.title)
-                    
-                    // Update the suggestions
-                    self.movieSuggestions = suggestions
-                    self.isSearching = false
-                    
-                } catch {
-                    // Handle errors
-                    print("Error searching for movies: \(error.localizedDescription)")
-                    self.movieSuggestions = []
-                    self.isSearching = false
-                }
+                // Get popular movie suggestions based on user entries
+                let suggestions = await self.apiService.getPopularMovieSuggestions(query: self.title)
+                
+                // Update the suggestions
+                self.popularSuggestions = suggestions
             }
         }
     }
     
-    func selectSuggestion(_ suggestion: MovieSuggestion) {
-        self.selectedSuggestion = suggestion
-        self.title = suggestion.title
-        if let year = suggestion.year {
-            self.year = String(year)
-        }
-    }
-    
-    func clearSelection() {
-        self.selectedSuggestion = nil
+    func selectSuggestion(_ suggestion: String) {
+        self.title = suggestion
+        standardizeTitle()
     }
     
     func validateForm() -> Bool {
@@ -138,34 +124,24 @@ class AddMovieViewModel: ObservableObject {
         // Create a task to add the movie
         Task { @MainActor in
             do {
-                // Check if we have a standardized ID
-                let standardizedId = selectedSuggestion?.id
-                
-                // Upload image if available
-                var imageUrl: String?
-                if let image = selectedImage {
-                    imageUrl = try await storageService.uploadPostImage(userId: userId, type: "movie", image: image)
-                } else if let suggestion = selectedSuggestion, let suggestionImageUrl = suggestion.imageURL {
-                    // Use the suggestion image URL if available
-                    imageUrl = suggestionImageUrl
-                }
+                // If title standardization is enabled, use the standardized title
+                let finalTitle = shouldStandardizeTitle ? standardizedTitle : title
                 
                 // Create movie object
                 let yearInt = year.isEmpty ? nil : Int(year)
                 
-                // Call the DatabaseService.addMovie method instead of directly creating a Movie
+                // Call the DatabaseService.addMovie method
                 try await databaseService.addMovie(
                     userId: userId, 
-                    title: title, 
+                    title: finalTitle, 
                     director: director.isEmpty ? nil : director, 
                     year: yearInt, 
                     location: nil, 
                     review: notes.isEmpty ? nil : notes, 
                     rating: Int(rating), 
-                    posterURL: imageUrl, 
                     genre: nil, 
                     runtime: nil, 
-                    standardizedId: standardizedId
+                    standardizedId: nil // No external standardization now
                 )
                 
                 // Reset form
@@ -187,12 +163,13 @@ class AddMovieViewModel: ObservableObject {
     
     func resetForm() {
         title = ""
+        standardizedTitle = ""
         director = ""
         year = ""
         rating = 3.0
         notes = ""
+        shouldStandardizeTitle = true
+        popularSuggestions = []
         selectedImage = nil
-        selectedSuggestion = nil
-        movieSuggestions = []
     }
 } 

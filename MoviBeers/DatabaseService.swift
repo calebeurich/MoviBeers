@@ -22,7 +22,7 @@ class DatabaseService {
     
     // MARK: - Beer Tracking
     
-    func addBeer(userId: String, name: String, brand: String, location: String?, review: String?, rating: Int?, imageURL: String?, type: String?, abv: Double?, standardizedId: String? = nil) async throws -> Beer {
+    func addBeer(userId: String, name: String, size: String?, location: String?, review: String?, rating: Int?, type: String?, abv: Double?, standardizedId: String? = nil) async throws -> Beer {
         do {
             print("Adding beer: \(name) for user: \(userId)")
             // Get current week data
@@ -32,14 +32,13 @@ class DatabaseService {
             let beer = Beer(
                 userId: userId,
                 name: name,
-                brand: brand,
+                size: size,
                 location: location,
                 review: review,
                 rating: rating,
                 consumedAt: Date(),
                 weekNumber: weekNumber,
                 weekStartDate: weekStartDate,
-                imageURL: imageURL,
                 type: type,
                 abv: abv,
                 standardizedId: standardizedId
@@ -62,8 +61,7 @@ class DatabaseService {
                 type: .beer,
                 itemId: beerId,
                 title: name,
-                subtitle: brand,
-                imageURL: imageURL,
+                subtitle: size ?? "",
                 location: location,
                 review: review,
                 rating: rating,
@@ -109,7 +107,7 @@ class DatabaseService {
     
     // MARK: - Movie Tracking
     
-    func addMovie(userId: String, title: String, director: String?, year: Int?, location: String?, review: String?, rating: Int?, posterURL: String?, genre: String?, runtime: Int?, standardizedId: String? = nil) async throws -> Movie {
+    func addMovie(userId: String, title: String, director: String?, year: Int?, location: String?, review: String?, rating: Int?, genre: String?, runtime: Int?, standardizedId: String? = nil) async throws -> Movie {
         do {
             print("Adding movie: \(title) for user: \(userId)")
             // Get current week data
@@ -127,7 +125,6 @@ class DatabaseService {
                 watchedAt: Date(),
                 weekNumber: weekNumber,
                 weekStartDate: weekStartDate,
-                posterURL: posterURL,
                 genre: genre,
                 runtime: runtime,
                 standardizedId: standardizedId
@@ -152,7 +149,6 @@ class DatabaseService {
                 itemId: movieId,
                 title: title,
                 subtitle: subtitleText,
-                imageURL: posterURL,
                 location: location,
                 review: review,
                 rating: rating,
@@ -198,7 +194,7 @@ class DatabaseService {
     
     // MARK: - Feed Posts
     
-    private func createPost(userId: String, type: PostType, itemId: String, title: String, subtitle: String?, imageURL: String?, location: String?, review: String?, rating: Int?, weekNumber: Int, standardizedId: String? = nil) async throws {
+    private func createPost(userId: String, type: PostType, itemId: String, title: String, subtitle: String?, location: String?, review: String?, rating: Int?, weekNumber: Int, standardizedId: String? = nil) async throws {
         do {
             print("🔄 Creating post for \(type): \(title), user: \(userId)")
             
@@ -214,12 +210,10 @@ class DatabaseService {
             let post = Post(
                 userId: userId,
                 username: userData["username"] as? String ?? "Unknown User",
-                userProfileImage: userData["profileImageURL"] as? String,
                 type: type,
                 itemId: itemId,
                 title: title,
                 subtitle: subtitle,
-                imageURL: imageURL,
                 location: location,
                 review: review,
                 rating: rating,
@@ -382,5 +376,365 @@ class DatabaseService {
         formatter.dateStyle = .short
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+    
+    // MARK: - Popular Suggestions
+    
+    func getPopularMovieSuggestions(query: String, limit: Int = 5) async -> [String] {
+        do {
+            // Convert query to lowercase for case-insensitive search
+            let lowercaseQuery = query.lowercased()
+            
+            // Query the movies collection for titles that start with or contain the query
+            let snapshot = try await db.collection("movies")
+                .whereField("title", isGreaterThanOrEqualTo: query)
+                .whereField("title", isLessThanOrEqualTo: query + "\u{f8ff}") // Unicode character for end of string
+                .limit(to: limit)
+                .getDocuments()
+            
+            // Process the results
+            var titleCounts: [String: Int] = [:]
+            snapshot.documents.forEach { document in
+                if let title = document.data()["title"] as? String {
+                    titleCounts[title, default: 0] += 1
+                }
+            }
+            
+            // Sort by count (popularity) and return titles
+            let sortedTitles = titleCounts.sorted { $0.value > $1.value }.map { $0.key }
+            return sortedTitles
+        } catch {
+            print("Error getting popular movie suggestions: \(error.localizedDescription)")
+            return []
+        }
+    }
+    
+    func getPopularBeerSuggestions(query: String, limit: Int = 5) async -> [String] {
+        do {
+            // Convert query to lowercase for case-insensitive search
+            let lowercaseQuery = query.lowercased()
+            
+            // Query the beers collection for names that start with or contain the query
+            let snapshot = try await db.collection("beers")
+                .whereField("name", isGreaterThanOrEqualTo: query)
+                .whereField("name", isLessThanOrEqualTo: query + "\u{f8ff}") // Unicode character for end of string
+                .limit(to: limit)
+                .getDocuments()
+            
+            // Process the results
+            var nameCounts: [String: Int] = [:]
+            snapshot.documents.forEach { document in
+                if let name = document.data()["name"] as? String {
+                    nameCounts[name, default: 0] += 1
+                }
+            }
+            
+            // Sort by count (popularity) and return names
+            let sortedNames = nameCounts.sorted { $0.value > $1.value }.map { $0.key }
+            return sortedNames
+        } catch {
+            print("Error getting popular beer suggestions: \(error.localizedDescription)")
+            return []
+        }
+    }
+    
+    // MARK: - Post Interactions (Likes and Comments)
+    
+    func likePost(postId: String, userId: String) async throws {
+        do {
+            print("👍 Liking post: \(postId) by user: \(userId)")
+            
+            // Check if the user already liked this post
+            let existingLikes = try await db.collection("interactions")
+                .whereField("postId", isEqualTo: postId)
+                .whereField("userId", isEqualTo: userId)
+                .whereField("type", isEqualTo: "like")
+                .getDocuments()
+            
+            // If already liked, return early (to prevent duplicate likes)
+            if !existingLikes.documents.isEmpty {
+                print("⚠️ User already liked this post")
+                return
+            }
+            
+            // Create the like interaction
+            let like = PostInteraction(
+                postId: postId,
+                userId: userId,
+                type: .like,
+                text: nil,
+                createdAt: Date()
+            )
+            
+            // Save to Firestore
+            let likeData = try Firestore.Encoder().encode(like)
+            let _ = try await db.collection("interactions").addDocument(data: likeData)
+            print("✅ Like saved")
+            
+            // Create notification for post owner
+            // First, get the post to find the owner
+            let postDoc = try await db.collection("posts").document(postId).getDocument()
+            if let postData = postDoc.data(),
+               let postOwnerId = postData["userId"] as? String,
+               let postTitle = postData["title"] as? String {
+                
+                // Get current user's username
+                let userDoc = try await db.collection("users").document(userId).getDocument()
+                if let userData = userDoc.data(),
+                   let username = userData["username"] as? String {
+                    
+                    // Create notification
+                    try await createNotification(
+                        recipientId: postOwnerId,
+                        senderId: userId,
+                        senderUsername: username,
+                        type: .like,
+                        postId: postId,
+                        postTitle: postTitle
+                    )
+                }
+            }
+        } catch {
+            print("🔴 Error liking post: \(error.localizedDescription)")
+            throw DatabaseError.saveError
+        }
+    }
+    
+    func unlikePost(postId: String, userId: String) async throws {
+        do {
+            print("👎 Unliking post: \(postId) by user: \(userId)")
+            
+            // Find the like document
+            let snapshot = try await db.collection("interactions")
+                .whereField("postId", isEqualTo: postId)
+                .whereField("userId", isEqualTo: userId)
+                .whereField("type", isEqualTo: "like")
+                .getDocuments()
+            
+            // If no like found, return early
+            guard let likeDoc = snapshot.documents.first else {
+                print("⚠️ No like found to remove")
+                return
+            }
+            
+            // Delete the like document
+            try await db.collection("interactions").document(likeDoc.documentID).delete()
+            print("✅ Like removed")
+        } catch {
+            print("🔴 Error unliking post: \(error.localizedDescription)")
+            throw DatabaseError.deleteError
+        }
+    }
+    
+    func addComment(postId: String, userId: String, text: String) async throws -> PostInteraction {
+        do {
+            print("💬 Adding comment to post: \(postId) by user: \(userId)")
+            
+            // Create the comment interaction
+            let comment = PostInteraction(
+                postId: postId,
+                userId: userId,
+                type: .comment,
+                text: text,
+                createdAt: Date()
+            )
+            
+            // Save to Firestore
+            let commentData = try Firestore.Encoder().encode(comment)
+            let docRef = try await db.collection("interactions").addDocument(data: commentData)
+            print("✅ Comment saved with ID: \(docRef.documentID)")
+            
+            // Create notification for post owner
+            // First, get the post to find the owner
+            let postDoc = try await db.collection("posts").document(postId).getDocument()
+            if let postData = postDoc.data(),
+               let postOwnerId = postData["userId"] as? String,
+               let postTitle = postData["title"] as? String {
+                
+                // Get current user's username
+                let userDoc = try await db.collection("users").document(userId).getDocument()
+                if let userData = userDoc.data(),
+                   let username = userData["username"] as? String {
+                    
+                    // Create notification
+                    try await createNotification(
+                        recipientId: postOwnerId,
+                        senderId: userId,
+                        senderUsername: username,
+                        type: .comment,
+                        postId: postId,
+                        postTitle: postTitle,
+                        commentText: text
+                    )
+                }
+            }
+            
+            // Return the comment with ID
+            var commentWithId = comment
+            commentWithId.id = docRef.documentID
+            return commentWithId
+        } catch {
+            print("🔴 Error adding comment: \(error.localizedDescription)")
+            throw DatabaseError.saveError
+        }
+    }
+    
+    func getPostInteractions(postId: String) async throws -> (likes: Int, comments: [PostInteraction]) {
+        do {
+            print("🔍 Getting interactions for post: \(postId)")
+            
+            // Get all interactions for this post
+            let snapshot = try await db.collection("interactions")
+                .whereField("postId", isEqualTo: postId)
+                .order(by: "createdAt", descending: false)
+                .getDocuments()
+            
+            // Count likes and collect comments
+            var likeCount = 0
+            var comments: [PostInteraction] = []
+            
+            for document in snapshot.documents {
+                do {
+                    var interaction = try Firestore.Decoder().decode(PostInteraction.self, from: document.data())
+                    interaction.id = document.documentID
+                    
+                    if interaction.type == .like {
+                        likeCount += 1
+                    } else if interaction.type == .comment {
+                        comments.append(interaction)
+                    }
+                } catch {
+                    print("🔴 Error decoding interaction: \(error)")
+                }
+            }
+            
+            print("✅ Found \(likeCount) likes and \(comments.count) comments")
+            return (likeCount, comments)
+        } catch {
+            print("🔴 Error getting post interactions: \(error.localizedDescription)")
+            throw DatabaseError.fetchError
+        }
+    }
+    
+    // MARK: - Notifications
+    
+    func createNotification(recipientId: String, senderId: String, senderUsername: String, type: NotificationType, postId: String? = nil, postTitle: String? = nil, commentText: String? = nil) async throws {
+        do {
+            print("📢 Creating notification: \(type.rawValue) for user: \(recipientId)")
+            
+            // Don't notify users about their own actions
+            if recipientId == senderId {
+                print("⚠️ Skipping self-notification")
+                return
+            }
+            
+            // Create notification object
+            let notification = Notification(
+                recipientId: recipientId,
+                senderId: senderId,
+                senderUsername: senderUsername,
+                type: type,
+                postId: postId,
+                postTitle: postTitle,
+                commentText: commentText,
+                createdAt: Date(),
+                isRead: false
+            )
+            
+            // Save to Firestore
+            let notificationData = try Firestore.Encoder().encode(notification)
+            let docRef = try await db.collection("notifications").addDocument(data: notificationData)
+            print("✅ Notification created with ID: \(docRef.documentID)")
+        } catch {
+            print("🔴 Error creating notification: \(error.localizedDescription)")
+            throw DatabaseError.saveError
+        }
+    }
+    
+    func getNotifications(userId: String, limit: Int = 30) async throws -> [Notification] {
+        do {
+            print("🔍 Getting notifications for user: \(userId)")
+            
+            let snapshot = try await db.collection("notifications")
+                .whereField("recipientId", isEqualTo: userId)
+                .order(by: "createdAt", descending: true)
+                .limit(to: limit)
+                .getDocuments()
+            
+            print("✅ Query returned \(snapshot.documents.count) notifications")
+            
+            return snapshot.documents.compactMap { document in
+                do {
+                    var notification = try Firestore.Decoder().decode(Notification.self, from: document.data())
+                    notification.id = document.documentID
+                    return notification
+                } catch {
+                    print("🔴 Error decoding notification: \(error)")
+                    return nil
+                }
+            }
+        } catch {
+            print("🔴 Error in getNotifications: \(error.localizedDescription)")
+            throw DatabaseError.fetchError
+        }
+    }
+    
+    func markNotificationAsRead(notificationId: String) async throws {
+        do {
+            print("📝 Marking notification as read: \(notificationId)")
+            
+            try await db.collection("notifications").document(notificationId).updateData([
+                "isRead": true
+            ])
+            
+            print("✅ Notification marked as read")
+        } catch {
+            print("🔴 Error marking notification as read: \(error.localizedDescription)")
+            throw DatabaseError.updateError
+        }
+    }
+    
+    func markAllNotificationsAsRead(userId: String) async throws {
+        do {
+            print("📝 Marking all notifications as read for user: \(userId)")
+            
+            // Get all unread notifications for this user
+            let snapshot = try await db.collection("notifications")
+                .whereField("recipientId", isEqualTo: userId)
+                .whereField("isRead", isEqualTo: false)
+                .getDocuments()
+            
+            // Create a batch update
+            let batch = db.batch()
+            for document in snapshot.documents {
+                batch.updateData(["isRead": true], forDocument: document.reference)
+            }
+            
+            // Commit the batch
+            try await batch.commit()
+            
+            print("✅ Marked \(snapshot.documents.count) notifications as read")
+        } catch {
+            print("🔴 Error marking all notifications as read: \(error.localizedDescription)")
+            throw DatabaseError.updateError
+        }
+    }
+    
+    func getUnreadNotificationCount(userId: String) async throws -> Int {
+        do {
+            print("🔢 Getting unread notification count for user: \(userId)")
+            
+            let snapshot = try await db.collection("notifications")
+                .whereField("recipientId", isEqualTo: userId)
+                .whereField("isRead", isEqualTo: false)
+                .getDocuments()
+            
+            let count = snapshot.documents.count
+            print("✅ User has \(count) unread notifications")
+            return count
+        } catch {
+            print("🔴 Error getting unread notification count: \(error.localizedDescription)")
+            throw DatabaseError.fetchError
+        }
     }
 } 

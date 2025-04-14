@@ -12,7 +12,6 @@ struct User: Identifiable, Codable {
     var id: String?
     var username: String
     var email: String
-    var profileImageURL: String?
     var bio: String?
     var joinDate: Date
     var currentWeekBeers: Int

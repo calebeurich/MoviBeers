@@ -15,7 +15,7 @@ class AddBeerViewModel: ObservableObject {
     
     // Form Data
     @Published var name: String = ""
-    @Published var brand: String = ""
+    @Published var size: String = ""
     @Published var type: String = ""
     @Published var rating: Double = 3.0
     @Published var notes: String = ""
@@ -29,14 +29,13 @@ class AddBeerViewModel: ObservableObject {
     @Published var showSuccess: Bool = false
     
     // Standardization
-    @Published var beerSuggestions: [BeerSuggestion] = []
-    @Published var isSearching: Bool = false
-    @Published var selectedSuggestion: BeerSuggestion?
+    @Published var standardizedName: String = ""
+    @Published var shouldStandardizeName: Bool = true
+    @Published var popularSuggestions: [String] = []
     
     // MARK: - Services
     
     private let databaseService: DatabaseService
-    private let storageService: StorageService
     private let apiService: APIService
     
     // MARK: - Debouncing Search
@@ -46,22 +45,28 @@ class AddBeerViewModel: ObservableObject {
     // MARK: - Init
     
     init(databaseService: DatabaseService = DatabaseService(),
-         storageService: StorageService = StorageService(),
          apiService: APIService = APIService()) {
         self.databaseService = databaseService
-        self.storageService = storageService
         self.apiService = apiService
     }
     
     // MARK: - Methods
     
-    func searchBeers() {
+    func standardizeBeerName() {
+        if shouldStandardizeName && !name.isEmpty {
+            standardizedName = apiService.standardizeBeerName(name)
+        } else {
+            standardizedName = name
+        }
+    }
+    
+    func searchPopularBeers() {
         // Cancel any existing timer
         searchDebounceTimer?.invalidate()
         
         // If the search text is empty, clear suggestions
         if name.isEmpty {
-            self.beerSuggestions = []
+            self.popularSuggestions = []
             return
         }
         
@@ -71,55 +76,29 @@ class AddBeerViewModel: ObservableObject {
             
             // Don't search if text is too short
             guard self.name.count >= 2 else {
-                self.beerSuggestions = []
+                self.popularSuggestions = []
                 return
             }
             
-            // Mark as searching
-            self.isSearching = true
-            
             // Create a task to perform the search
             Task { @MainActor in
-                do {
-                    // Search for beers
-                    let suggestions = try await self.apiService.searchBeers(query: self.name)
-                    
-                    // Update the suggestions
-                    self.beerSuggestions = suggestions
-                    self.isSearching = false
-                    
-                } catch {
-                    // Handle errors
-                    print("Error searching for beers: \(error.localizedDescription)")
-                    self.beerSuggestions = []
-                    self.isSearching = false
-                }
+                // Get popular beer suggestions based on user entries
+                let suggestions = await self.apiService.getPopularBeerSuggestions(query: self.name)
+                
+                // Update the suggestions
+                self.popularSuggestions = suggestions
             }
         }
     }
     
-    func selectSuggestion(_ suggestion: BeerSuggestion) {
-        self.selectedSuggestion = suggestion
-        self.name = suggestion.name
-        self.brand = suggestion.brand
-        if let type = suggestion.type {
-            self.type = type
-        }
-    }
-    
-    func clearSelection() {
-        self.selectedSuggestion = nil
+    func selectSuggestion(_ suggestion: String) {
+        self.name = suggestion
+        standardizeBeerName()
     }
     
     func validateForm() -> Bool {
         guard !name.isEmpty else {
             self.errorMessage = "Beer name cannot be empty"
-            self.showError = true
-            return false
-        }
-        
-        guard !brand.isEmpty else {
-            self.errorMessage = "Brand name cannot be empty"
             self.showError = true
             return false
         }
@@ -137,27 +116,20 @@ class AddBeerViewModel: ObservableObject {
         // Create a task to add the beer
         Task { @MainActor in
             do {
-                // Check if we have a standardized ID
-                let standardizedId = selectedSuggestion?.id
-                
-                // Upload image if available
-                var imageUrl: String?
-                if let image = selectedImage {
-                    imageUrl = try await storageService.uploadPostImage(userId: userId, type: "beer", image: image)
-                }
+                // Get final name (use standardized if enabled)
+                let finalName = shouldStandardizeName ? standardizedName : name
                 
                 // Call the DatabaseService.addBeer method directly
                 try await databaseService.addBeer(
                     userId: userId,
-                    name: name,
-                    brand: brand,
+                    name: finalName,
+                    size: size.isEmpty ? nil : size,
                     location: nil,
                     review: notes.isEmpty ? nil : notes,
                     rating: Int(rating),
-                    imageURL: imageUrl,
                     type: type.isEmpty ? nil : type,
                     abv: nil,
-                    standardizedId: standardizedId
+                    standardizedId: nil // No external standardization now
                 )
                 
                 // Reset form
@@ -179,12 +151,13 @@ class AddBeerViewModel: ObservableObject {
     
     func resetForm() {
         name = ""
-        brand = ""
+        standardizedName = ""
+        size = ""
         type = ""
         rating = 3.0
         notes = ""
+        shouldStandardizeName = true
+        popularSuggestions = []
         selectedImage = nil
-        selectedSuggestion = nil
-        beerSuggestions = []
     }
 } 

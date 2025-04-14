@@ -17,206 +17,92 @@ enum APIError: Error {
 }
 
 class APIService {
-    // MARK: - Beer API
-    
-    // Using Open Brewery DB API for beer suggestions (free and no API key required)
-    // https://www.openbrewerydb.org/
-    private let beerBaseURL = "https://api.openbrewerydb.org/v1"
-    
-    // MARK: - Movie API
-    
-    // Using TMDB API for movie suggestions (requires API key)
-    // https://developer.themoviedb.org/docs
-    private let movieBaseURL = "https://api.themoviedb.org/3"
-    // Note: In a real app, this should be stored securely, not hardcoded
-    // Using a placeholder that would need to be replaced with a real key
-    private let tmdbApiKey = "YOUR_TMDB_API_KEY_HERE"
-    
     // MARK: - HTTP Client
     
     private let session = URLSession.shared
     private let jsonDecoder = JSONDecoder()
+    private let databaseService = DatabaseService()
     
-    // MARK: - Beer API Methods
+    // MARK: - Standardization Methods
     
-    func searchBeers(query: String) async throws -> [BeerSuggestion] {
-        // If query is too short, return empty results
-        guard query.count >= 2 else { return [] }
-        
-        print("Searching beers with query: \(query)")
-        let urlString = "\(beerBaseURL)/breweries/search?query=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
-        
-        guard let url = URL(string: urlString) else {
-            print("🔴 Invalid URL for beer search")
-            throw APIError.invalidURL
-        }
-        
-        do {
-            let (data, response) = try await session.data(from: url)
+    func standardizeMovieTitle(_ title: String) -> String {
+        // Simple standardization function that capitalizes words and ensures proper spacing
+        let words = title.split(separator: " ").map { word -> String in
+            // Skip certain words from capitalization if they're not at the beginning
+            let lowercaseWords = ["a", "an", "the", "and", "but", "or", "for", "nor", "on", "at", "to", "from", "by", "with", "in", "of"]
+            let wordString = word.lowercased()
             
-            guard let httpResponse = response as? HTTPURLResponse else {
-                print("🔴 Unknown response type from server")
-                throw APIError.unknown
-            }
-            
-            guard httpResponse.statusCode == 200 else {
-                print("🔴 Server error: \(httpResponse.statusCode)")
-                throw APIError.serverError(httpResponse.statusCode)
-            }
-            
-            // Decode the brewery data
-            jsonDecoder.keyDecodingStrategy = .convertFromSnakeCase
-            let breweries = try jsonDecoder.decode([Brewery].self, from: data)
-            print("✅ Received \(breweries.count) breweries from API")
-            
-            // Convert breweries to beer suggestions
-            let suggestions = breweries.flatMap { brewery in
-                // For each brewery, create a few generic beer suggestions
-                let beerTypes = ["IPA", "Lager", "Stout", "Pale Ale", "Pilsner", "Porter"]
-                
-                return beerTypes.prefix(2).map { beerType in
-                    BeerSuggestion(
-                        id: "\(brewery.id)_\(beerType.lowercased().replacingOccurrences(of: " ", with: "_"))",
-                        name: "\(beerType)",
-                        brand: brewery.name,
-                        type: beerType,
-                        imageURL: nil
-                    )
+            // Capitalize the first character if it's not a lowercase word or it's the first word
+            if !lowercaseWords.contains(wordString) || wordString == title.lowercased().prefix(word.count) {
+                if let firstChar = wordString.first {
+                    return String(firstChar).uppercased() + wordString.dropFirst()
                 }
             }
             
-            print("✅ Generated \(suggestions.count) beer suggestions")
-            return suggestions
-        } catch let error as APIError {
-            throw error
-        } catch {
-            print("🔴 Network error: \(error.localizedDescription)")
-            throw APIError.networkError(error)
-        }
-    }
-    
-    // MARK: - Movie API Methods
-    
-    func searchMovies(query: String) async throws -> [MovieSuggestion] {
-        // If query is too short, return empty results
-        guard query.count >= 2 else { return [] }
-        
-        print("Searching movies with query: \(query)")
-        let urlString = "\(movieBaseURL)/search/movie?api_key=\(tmdbApiKey)&query=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
-        
-        guard let url = URL(string: urlString) else {
-            print("🔴 Invalid URL for movie search")
-            throw APIError.invalidURL
+            return wordString
         }
         
-        do {
-            let (data, response) = try await session.data(from: url)
+        return words.joined(separator: " ")
+    }
+    
+    func standardizeBeerName(_ name: String) -> String {
+        // Similar to movie titles, but with specific handling for beer names
+        // Beer names often have specific capitalization patterns
+        
+        let words = name.split(separator: " ").map { word -> String in
+            let wordString = word.lowercased()
             
-            guard let httpResponse = response as? HTTPURLResponse else {
-                print("🔴 Unknown response type from server")
-                throw APIError.unknown
+            // Words that are typically lowercase in beer names
+            let lowercaseWords = ["and", "or", "with", "on", "the", "a", "an", "in", "by", "for"]
+            
+            // Special abbreviations in beer names should be all caps
+            let upperCaseWords = ["ipa", "dipa", "neipa", "xpa", "aipa", "ipl"]
+            
+            if upperCaseWords.contains(wordString) {
+                return wordString.uppercased()
+            } else if !lowercaseWords.contains(wordString) || wordString == name.lowercased().prefix(word.count) {
+                if let firstChar = wordString.first {
+                    return String(firstChar).uppercased() + wordString.dropFirst()
+                }
             }
             
-            guard httpResponse.statusCode == 200 else {
-                print("🔴 Server error: \(httpResponse.statusCode)")
-                throw APIError.serverError(httpResponse.statusCode)
-            }
-            
-            // Decode the movie data
-            let tmdbResponse = try jsonDecoder.decode(TMDBSearchResponse.self, from: data)
-            print("✅ Received \(tmdbResponse.results.count) movies from API")
-            
-            // Convert TMDB movies to movie suggestions
-            let suggestions = tmdbResponse.results.map { tmdbMovie in
-                let releaseYear: Int? = {
-                    if let releaseDateString = tmdbMovie.releaseDate, 
-                       let year = Int(releaseDateString.prefix(4)) {
-                        return year
-                    }
-                    return nil
-                }()
-                
-                return MovieSuggestion(
-                    id: String(tmdbMovie.id),
-                    title: tmdbMovie.title,
-                    year: releaseYear,
-                    imageURL: tmdbMovie.posterPath != nil ? "https://image.tmdb.org/t/p/w200\(tmdbMovie.posterPath!)" : nil
-                )
-            }
-            
-            print("✅ Processed \(suggestions.count) movie suggestions")
-            return suggestions
-        } catch let error as APIError {
-            throw error
-        } catch {
-            print("🔴 Network error: \(error.localizedDescription)")
-            throw APIError.networkError(error)
+            return wordString
         }
+        
+        return words.joined(separator: " ")
     }
-}
-
-// MARK: - Model Structs
-
-// Suggestions model for displaying standardized beer options
-struct BeerSuggestion: Identifiable, Hashable {
-    let id: String
-    let name: String
-    let brand: String
-    let type: String?
-    let imageURL: String?
-}
-
-// Brewery model from Open Brewery DB API
-struct Brewery: Codable {
-    let id: String
-    let name: String
-    let breweryType: String?
-    let street: String?
-    let city: String?
-    let state: String?
-    let postalCode: String?
-    let country: String?
-    let longitude: String?
-    let latitude: String?
-    let phone: String?
-    let websiteUrl: String?
-}
-
-// Suggestions model for displaying standardized movie options
-struct MovieSuggestion: Identifiable, Hashable {
-    let id: String
-    let title: String
-    let year: Int?
-    let imageURL: String?
-}
-
-// TMDB API response models
-struct TMDBSearchResponse: Codable {
-    let page: Int
-    let results: [TMDBMovie]
-    let totalResults: Int
-    let totalPages: Int
     
-    enum CodingKeys: String, CodingKey {
-        case page
-        case results
-        case totalResults = "total_results"
-        case totalPages = "total_pages"
+    func standardizeBrand(_ brand: String) -> String {
+        // Brand names typically have all major words capitalized
+        let words = brand.split(separator: " ").map { word -> String in
+            let wordString = word.lowercased()
+            
+            // Very few words would be lowercase in a brand name
+            let lowercaseWords = ["and", "of", "the"]
+            
+            if !lowercaseWords.contains(wordString) || wordString == brand.lowercased().prefix(word.count) {
+                if let firstChar = wordString.first {
+                    return String(firstChar).uppercased() + wordString.dropFirst()
+                }
+            }
+            
+            return wordString
+        }
+        
+        return words.joined(separator: " ")
     }
-}
-
-struct TMDBMovie: Codable {
-    let id: Int
-    let title: String
-    let overview: String?
-    let releaseDate: String?
-    let posterPath: String?
     
-    enum CodingKeys: String, CodingKey {
-        case id
-        case title
-        case overview
-        case releaseDate = "release_date"
-        case posterPath = "poster_path"
+    // MARK: - User-based Suggestion Methods
+    
+    // Get movie suggestions based on popularity from database
+    func getPopularMovieSuggestions(query: String) async -> [String] {
+        // Call the database service to get popular movie suggestions
+        return await databaseService.getPopularMovieSuggestions(query: query)
+    }
+    
+    // Get beer suggestions based on popularity from database
+    func getPopularBeerSuggestions(query: String) async -> [String] {
+        // Call the database service to get popular beer suggestions
+        return await databaseService.getPopularBeerSuggestions(query: query)
     }
 } 

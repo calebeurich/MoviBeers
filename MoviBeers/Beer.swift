@@ -12,7 +12,7 @@ struct Beer: Identifiable, Codable {
     var id: String?
     let userId: String
     let name: String
-    let brand: String
+    let size: String? // Size like "12oz", "16oz", "Pint", etc.
     let location: String?
     let review: String?
     let rating: Int? // 1-5 stars
@@ -21,7 +21,6 @@ struct Beer: Identifiable, Codable {
     let weekStartDate: Date // For identifying which week this belongs to
     
     // Optional fields
-    let imageURL: String?
     let type: String? // IPA, Stout, etc.
     let abv: Double? // Alcohol by volume
     
@@ -32,14 +31,13 @@ struct Beer: Identifiable, Codable {
         case id
         case userId
         case name
-        case brand
+        case size
         case location
         case review
         case rating
         case consumedAt
         case weekNumber
         case weekStartDate
-        case imageURL
         case type
         case abv
         case standardizedId

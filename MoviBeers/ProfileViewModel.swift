@@ -234,6 +234,20 @@ class ProfileViewModel: ObservableObject {
                 }
             }
             
+            // Get current user's username for the notification
+            let currentUserSnapshot = try await db.collection("users").document(currentUserId).getDocument()
+            if let currentUserData = currentUserSnapshot.data(),
+               let username = currentUserData["username"] as? String {
+                // Create a follow notification
+                let databaseService = DatabaseService()
+                try await databaseService.createNotification(
+                    recipientId: userId,
+                    senderId: currentUserId,
+                    senderUsername: username,
+                    type: .follow
+                )
+            }
+            
             // Reload following list
             await loadFollowing(userId: currentUserId)
         } catch {
