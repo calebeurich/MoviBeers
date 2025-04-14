@@ -24,8 +24,7 @@ struct AddMovieView: View {
                 MovieNotesSection(notes: $viewModel.notes)
                 MoviePhotoSection(
                     selectedImage: $viewModel.selectedImage,
-                    photoPickerItem: $photoPickerItem,
-                    selectedSuggestion: viewModel.selectedSuggestion
+                    photoPickerItem: $photoPickerItem
                 )
                 AddMovieButtonSection(
                     isLoading: viewModel.isLoading,
@@ -88,53 +87,53 @@ struct MovieInfoSection: View {
         Section("Movie Info") {
             TextField("Movie Title", text: $viewModel.title)
                 .onChange(of: viewModel.title) { _ in
-                    viewModel.searchMovies()
+                    viewModel.standardizeTitle()
+                    viewModel.searchPopularMovies()
                 }
             
-            // Show suggestions if available
-            if !viewModel.movieSuggestions.isEmpty {
+            // Show standardized title if there is one and standardization is enabled
+            if !viewModel.standardizedTitle.isEmpty && viewModel.standardizedTitle != viewModel.title && viewModel.shouldStandardizeTitle {
+                HStack {
+                    Text("Will be saved as: ")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(viewModel.standardizedTitle)
+                        .font(.caption)
+                        .fontWeight(.bold)
+                }
+            }
+            
+            // Toggle for title standardization
+            Toggle("Standardize title format", isOn: $viewModel.shouldStandardizeTitle)
+                .onChange(of: viewModel.shouldStandardizeTitle) { _ in
+                    viewModel.standardizeTitle()
+                }
+            
+            // Show popular suggestions if available
+            if !viewModel.popularSuggestions.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(viewModel.movieSuggestions) { suggestion in
-                            MovieSuggestionCard(
-                                suggestion: suggestion,
-                                isSelected: viewModel.selectedSuggestion?.id == suggestion.id,
-                                onSelect: {
-                                    viewModel.selectSuggestion(suggestion)
-                                }
-                            )
+                        Text("Popular:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 4)
+                        
+                        ForEach(viewModel.popularSuggestions, id: \.self) { suggestion in
+                            Button(action: {
+                                viewModel.selectSuggestion(suggestion)
+                            }) {
+                                Text(suggestion)
+                                    .font(.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.red.opacity(0.1))
+                                    .cornerRadius(8)
+                            }
                         }
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
                 }
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-            }
-            
-            // Loading indicator
-            if viewModel.isSearching {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-            }
-            
-            // Selected suggestion badge
-            if let suggestion = viewModel.selectedSuggestion {
-                HStack {
-                    Text("Using standardized movie: \(suggestion.title)")
-                        .font(.caption)
-                    
-                    Spacer()
-                    
-                    Button {
-                        viewModel.clearSelection()
-                    } label: {
-                        Text("Clear")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                }
             }
             
             TextField("Director (Optional)", text: $viewModel.director)
@@ -187,72 +186,29 @@ struct MovieNotesSection: View {
 struct MoviePhotoSection: View {
     @Binding var selectedImage: UIImage?
     @Binding var photoPickerItem: PhotosPickerItem?
-    let selectedSuggestion: MovieSuggestion?
     
     var body: some View {
         Section("Photo (Optional)") {
             // Photo picker button
-            // Only show if there's no suggestion with an image or if the user wants a custom image
-            if selectedSuggestion?.imageURL == nil || selectedImage != nil {
-                PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                    HStack {
-                        Image(systemName: "photo")
-                        Text(selectedImage == nil ? "Add Photo" : "Change Photo")
-                    }
+            PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                HStack {
+                    Image(systemName: "photo")
+                    Text(selectedImage == nil ? "Add Photo" : "Change Photo")
                 }
             }
             
-            // Show selected image preview (either from suggestion or user selection)
+            // Show selected image preview
             if let image = selectedImage {
-                HStack {
-                    Spacer()
+                VStack {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
                         .frame(maxHeight: 200)
-                    Spacer()
-                }
-                
-                Button(role: .destructive) {
-                    selectedImage = nil
-                    photoPickerItem = nil
-                } label: {
-                    HStack {
-                        Spacer()
-                        Text("Remove Photo")
-                        Spacer()
-                    }
-                }
-            } else if let suggestion = selectedSuggestion, let imageURL = suggestion.imageURL {
-                VStack {
-                    AsyncImage(url: URL(string: imageURL)) { phase in
-                        switch phase {
-                        case .empty:
-                            ProgressView()
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxHeight: 200)
-                        case .failure:
-                            Image(systemName: "film")
-                                .font(.largeTitle)
-                                .foregroundColor(.secondary)
-                        @unknown default:
-                            EmptyView()
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
                     
-                    Text("Poster from TMDB")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.top, 4)
-                    
-                    // Allow user to add a custom photo instead
-                    PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                        Text("Use Custom Photo Instead")
-                            .font(.caption)
+                    Button(role: .destructive) {
+                        selectedImage = nil
+                    } label: {
+                        Label("Remove Photo", systemImage: "trash")
                     }
                 }
             }
@@ -260,7 +216,7 @@ struct MoviePhotoSection: View {
     }
 }
 
-// MARK: - Add Button Section
+// MARK: - Add Movie Button Section
 struct AddMovieButtonSection: View {
     let isLoading: Bool
     let authViewModel: AuthViewModel
@@ -269,96 +225,22 @@ struct AddMovieButtonSection: View {
     var body: some View {
         Section {
             Button {
-                guard let userId = authViewModel.user?.id else { return }
-                addMovie(userId)
+                if let userId = authViewModel.user?.id {
+                    addMovie(userId)
+                }
             } label: {
                 HStack {
                     Spacer()
                     if isLoading {
                         ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
                     } else {
                         Text("Add Movie")
-                            .bold()
                     }
                     Spacer()
                 }
             }
             .disabled(isLoading)
-        }
-    }
-}
-
-// MARK: - Movie Suggestion Card
-struct MovieSuggestionCard: View {
-    let suggestion: MovieSuggestion
-    let isSelected: Bool
-    let onSelect: () -> Void
-    
-    var body: some View {
-        Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 4) {
-                // Movie poster if available
-                if let imageURL = suggestion.imageURL {
-                    AsyncImage(url: URL(string: imageURL)) { phase in
-                        switch phase {
-                        case .empty:
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.2))
-                                .aspectRatio(2/3, contentMode: .fit)
-                                .overlay(ProgressView())
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 120, height: 180)
-                                .clipped()
-                                .cornerRadius(8)
-                        case .failure:
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.2))
-                                .aspectRatio(2/3, contentMode: .fit)
-                                .overlay(
-                                    Image(systemName: "film")
-                                        .font(.largeTitle)
-                                        .foregroundColor(.secondary)
-                                )
-                        @unknown default:
-                            EmptyView()
-                        }
-                    }
-                    .frame(width: 120, height: 180)
-                } else {
-                    // Placeholder if no image
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(width: 120, height: 180)
-                        .overlay(
-                            Image(systemName: "film")
-                                .font(.largeTitle)
-                                .foregroundColor(.secondary)
-                        )
-                }
-                
-                Text(suggestion.title)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                    .lineLimit(2)
-                    .frame(width: 120, alignment: .leading)
-                
-                if let year = suggestion.year {
-                    Text("\(year)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .frame(width: 120)
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.red : Color.clear, lineWidth: 2)
-                    .background(isSelected ? Color.red.opacity(0.1) : Color.clear)
-                    .cornerRadius(12)
-            )
         }
     }
 }

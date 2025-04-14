@@ -22,7 +22,6 @@ struct Movie: Identifiable, Codable {
     let weekStartDate: Date // For identifying which week this belongs to
     
     // Optional fields
-    let posterURL: String?
     let genre: String?
     let runtime: Int? // in minutes
     
@@ -41,7 +40,6 @@ struct Movie: Identifiable, Codable {
         case watchedAt
         case weekNumber
         case weekStartDate
-        case posterURL
         case genre
         case runtime
         case standardizedId

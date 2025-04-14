@@ -129,7 +129,7 @@ class AuthViewModel: ObservableObject {
         }
     }
     
-    func updateProfile(username: String? = nil, bio: String? = nil, profileImageURL: String? = nil) {
+    func updateProfile(username: String? = nil, bio: String? = nil) {
         guard let userId = user?.id else { return }
         
         print("🔄 Updating profile for user ID: \(userId)")
@@ -150,7 +150,7 @@ class AuthViewModel: ObservableObject {
                     }
                 }
                 
-                try await authService.updateProfile(userId: userId, username: username, bio: bio, profileImageURL: profileImageURL)
+                try await authService.updateProfile(userId: userId, username: username, bio: bio)
                 
                 // Reload user data to reflect changes
                 loadUser(userId: userId)
@@ -162,5 +162,11 @@ class AuthViewModel: ObservableObject {
                 }
             }
         }
+    }
+    
+    func updateCurrentUser(user: User) {
+        // Update the current user object without making any network calls
+        self.user = user
+        print("✅ Current user updated locally")
     }
 } 

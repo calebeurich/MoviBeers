@@ -87,56 +87,57 @@ struct BeerInfoSection: View {
         Section("Beer Info") {
             TextField("Beer Name", text: $viewModel.name)
                 .onChange(of: viewModel.name) { _ in
-                    viewModel.searchBeers()
+                    viewModel.standardizeBeerName()
+                    viewModel.searchPopularBeers()
                 }
             
-            // Show suggestions if available
-            if !viewModel.beerSuggestions.isEmpty {
+            // Show standardized name if there is one and standardization is enabled
+            if !viewModel.standardizedName.isEmpty && viewModel.standardizedName != viewModel.name && viewModel.shouldStandardizeName {
+                HStack {
+                    Text("Will be saved as: ")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(viewModel.standardizedName)
+                        .font(.caption)
+                        .fontWeight(.bold)
+                }
+            }
+            
+            // Toggle for beer name standardization
+            Toggle("Standardize beer name", isOn: $viewModel.shouldStandardizeName)
+                .onChange(of: viewModel.shouldStandardizeName) { _ in
+                    viewModel.standardizeBeerName()
+                }
+            
+            // Show popular suggestions if available
+            if !viewModel.popularSuggestions.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
-                        ForEach(viewModel.beerSuggestions) { suggestion in
-                            BeerSuggestionCard(
-                                suggestion: suggestion,
-                                isSelected: viewModel.selectedSuggestion?.id == suggestion.id,
-                                onSelect: {
-                                    viewModel.selectSuggestion(suggestion)
-                                }
-                            )
+                        Text("Popular:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 4)
+                        
+                        ForEach(viewModel.popularSuggestions, id: \.self) { suggestion in
+                            Button(action: {
+                                viewModel.selectSuggestion(suggestion)
+                            }) {
+                                Text(suggestion)
+                                    .font(.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.blue.opacity(0.1))
+                                    .cornerRadius(8)
+                            }
                         }
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
                 }
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
             }
             
-            // Loading indicator
-            if viewModel.isSearching {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-            }
+            TextField("Size (e.g., 12oz, Pint)", text: $viewModel.size)
             
-            // Selected suggestion badge
-            if let suggestion = viewModel.selectedSuggestion {
-                HStack {
-                    Text("Using standardized beer: \(suggestion.name)")
-                        .font(.caption)
-                    
-                    Spacer()
-                    
-                    Button {
-                        viewModel.clearSelection()
-                    } label: {
-                        Text("Clear")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                }
-            }
-            
-            TextField("Brand", text: $viewModel.brand)
             TextField("Type (Optional)", text: $viewModel.type)
         }
     }
@@ -222,7 +223,7 @@ struct PhotoSection: View {
     }
 }
 
-// MARK: - Add Button Section
+// MARK: - Add Beer Button Section
 struct AddBeerButtonSection: View {
     let isLoading: Bool
     let authViewModel: AuthViewModel
@@ -231,58 +232,22 @@ struct AddBeerButtonSection: View {
     var body: some View {
         Section {
             Button {
-                guard let userId = authViewModel.user?.id else { return }
-                addBeer(userId)
+                if let userId = authViewModel.user?.id {
+                    addBeer(userId)
+                }
             } label: {
                 HStack {
                     Spacer()
                     if isLoading {
                         ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
                     } else {
                         Text("Add Beer")
-                            .bold()
                     }
                     Spacer()
                 }
             }
             .disabled(isLoading)
-        }
-    }
-}
-
-// MARK: - Beer Suggestion Card
-struct BeerSuggestionCard: View {
-    let suggestion: BeerSuggestion
-    let isSelected: Bool
-    let onSelect: () -> Void
-    
-    var body: some View {
-        Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(suggestion.name)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                
-                Text(suggestion.brand)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                if let type = suggestion.type {
-                    Text(type)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .padding(10)
-            .frame(width: 130)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color.yellow.opacity(0.2) : Color.gray.opacity(0.1))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? Color.yellow : Color.clear, lineWidth: 2)
-            )
         }
     }
 }

@@ -23,28 +23,38 @@ struct ProfileView: View {
     @State private var newUsername = ""
     @State private var isSubmittingUsername = false
     
+    // This is optional; when nil, show current user's profile
+    var userId: String?
+    
+    // Computed property to determine if we're looking at current user's profile
+    private var isCurrentUserProfile: Bool {
+        return userId == nil || userId == authViewModel.user?.id
+    }
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // User info section
-                if let user = authViewModel.user {
+                if let user = viewModel.user {
                     userHeaderView(user: user)
                 }
                 
-                // Tab selection
+                // Tab selection - different options based on whose profile we're viewing
                 tabSelectionView()
                 
                 // Content based on selected tab
                 tabContentView()
             }
-            .navigationTitle("Profile")
+            .navigationTitle(isCurrentUserProfile ? "Profile" : "User Profile")
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        authViewModel.signOut()
-                    } label: {
-                        Text("Sign Out")
-                            .foregroundColor(.red)
+                if isCurrentUserProfile {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            authViewModel.signOut()
+                        } label: {
+                            Text("Sign Out")
+                                .foregroundColor(.red)
+                        }
                     }
                 }
             }
@@ -68,41 +78,14 @@ struct ProfileView: View {
         VStack(spacing: 16) {
             // Profile image and stats
             HStack(spacing: 24) {
-                // Profile image
-                if let profileImageURL = user.profileImageURL, !profileImageURL.isEmpty {
-                    AsyncImage(url: URL(string: profileImageURL)) { phase in
-                        switch phase {
-                        case .empty:
-                            Circle()
-                                .fill(Color.gray.opacity(0.2))
-                                .frame(width: 80, height: 80)
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 80, height: 80)
-                                .clipShape(Circle())
-                        case .failure:
-                            Circle()
-                                .fill(Color.gray.opacity(0.2))
-                                .frame(width: 80, height: 80)
-                                .overlay(
-                                    Image(systemName: "person.fill")
-                                        .foregroundColor(.gray)
-                                )
-                        @unknown default:
-                            EmptyView()
-                        }
-                    }
-                } else {
-                    Circle()
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(width: 80, height: 80)
-                        .overlay(
-                            Image(systemName: "person.fill")
-                                .foregroundColor(.gray)
-                        )
-                }
+                // Profile icon
+                Circle()
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: 80, height: 80)
+                    .overlay(
+                        Image(systemName: "person.fill")
+                            .foregroundColor(.gray)
+                    )
                 
                 // Stats
                 HStack(spacing: 24) {
@@ -120,13 +103,31 @@ struct ProfileView: View {
                         .font(.title2)
                         .fontWeight(.bold)
                     
-                    Button {
-                        newUsername = user.username
-                        isEditingUsername = true
-                    } label: {
-                        Image(systemName: "pencil.circle.fill")
-                            .foregroundColor(.accentColor)
-                            .font(.headline)
+                    if isCurrentUserProfile {
+                        // Edit button for current user
+                        Button {
+                            newUsername = user.username
+                            isEditingUsername = true
+                        } label: {
+                            Image(systemName: "pencil.circle.fill")
+                                .foregroundColor(.accentColor)
+                                .font(.headline)
+                        }
+                    } else {
+                        // Follow/unfollow button for other users
+                        Button {
+                            followButtonAction(user: user)
+                        } label: {
+                            Text(user.isFollowing == true ? "Unfollow" : "Follow")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(user.isFollowing == true ? Color.gray : Color.blue)
+                                .cornerRadius(16)
+                        }
+                        .disabled(viewModel.isLoading)
                     }
                 }
                 
@@ -149,6 +150,19 @@ struct ProfileView: View {
         }
     }
     
+    private func followButtonAction(user: User) {
+        guard let currentUserId = authViewModel.user?.id,
+              let userId = user.id else { return }
+        
+        Task {
+            if user.isFollowing == true {
+                await viewModel.unfollowUser(userId: userId, currentUserId: currentUserId)
+            } else {
+                await viewModel.followUser(userId: userId, currentUserId: currentUserId)
+            }
+        }
+    }
+    
     private func statsView(title: String, value: String) -> some View {
         VStack(spacing: 4) {
             Text(value)
@@ -163,9 +177,17 @@ struct ProfileView: View {
     private func tabSelectionView() -> some View {
         HStack(spacing: 0) {
             tabButton(title: "Profile", tab: .profile)
-            tabButton(title: "Followers", tab: .followers)
-            tabButton(title: "Following", tab: .following)
-            tabButton(title: "Search", tab: .search)
+            
+            if isCurrentUserProfile {
+                // Current user gets all tabs
+                tabButton(title: "Followers", tab: .followers)
+                tabButton(title: "Following", tab: .following)
+                tabButton(title: "Search", tab: .search)
+            } else {
+                // Other users' profiles only show followers and following
+                tabButton(title: "Followers", tab: .followers)
+                tabButton(title: "Following", tab: .following)
+            }
         }
         .padding(.top, 8)
     }
@@ -212,7 +234,7 @@ struct ProfileView: View {
                     .font(.headline)
                     .padding(.horizontal)
                 
-                if let user = authViewModel.user {
+                if let user = viewModel.user {
                     HStack(spacing: 12) {
                         // Current week stats
                         VStack(alignment: .leading, spacing: 8) {
@@ -442,9 +464,20 @@ struct ProfileView: View {
     // MARK: - Helper Methods
     
     private func loadUserData() {
-        if let userId = authViewModel.user?.id {
-            Task {
-                await viewModel.loadUserProfile(userId: userId)
+        Task {
+            let profileUserId = userId ?? authViewModel.user?.id
+            
+            if let id = profileUserId {
+                await viewModel.loadUserProfile(userId: id)
+                
+                // If this is the current user, we should sync the authViewModel and profileViewModel
+                if isCurrentUserProfile {
+                    await MainActor.run {
+                        if let user = viewModel.user {
+                            authViewModel.updateCurrentUser(user: user)
+                        }
+                    }
+                }
             }
         }
     }
@@ -543,40 +576,13 @@ struct UserRow: View {
     var body: some View {
         HStack(spacing: 12) {
             // Profile image
-            if let profileImageURL = user.profileImageURL, !profileImageURL.isEmpty {
-                AsyncImage(url: URL(string: profileImageURL)) { phase in
-                    switch phase {
-                    case .empty:
-                        Circle()
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(width: 44, height: 44)
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 44, height: 44)
-                            .clipShape(Circle())
-                    case .failure:
-                        Circle()
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(width: 44, height: 44)
-                            .overlay(
-                                Image(systemName: "person.fill")
-                                    .foregroundColor(.gray)
-                            )
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-            } else {
-                Circle()
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: 44, height: 44)
-                    .overlay(
-                        Image(systemName: "person.fill")
-                            .foregroundColor(.gray)
-                    )
-            }
+            Circle()
+                .fill(Color.gray.opacity(0.2))
+                .frame(width: 44, height: 44)
+                .overlay(
+                    Image(systemName: "person.fill")
+                        .foregroundColor(.gray)
+                )
             
             // User info
             VStack(alignment: .leading, spacing: 2) {

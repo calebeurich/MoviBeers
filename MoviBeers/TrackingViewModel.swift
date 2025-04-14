@@ -38,7 +38,7 @@ class TrackingViewModel: ObservableObject {
                     id: beer.id ?? UUID().uuidString,
                     type: .beer,
                     name: beer.name,
-                    subtitle: beer.brand,
+                    subtitle: beer.size ?? "Unknown size",
                     rating: Double(beer.rating ?? 0),
                     timestamp: beer.consumedAt,
                     standardizedId: beer.standardizedId

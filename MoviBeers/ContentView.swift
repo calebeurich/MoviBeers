@@ -34,6 +34,9 @@ struct ContentView: View {
 }
 
 struct MainTabView: View {
+    @EnvironmentObject var authViewModel: AuthViewModel
+    @StateObject private var notificationViewModel = NotificationTabViewModel()
+    
     var body: some View {
         TabView {
             FeedView()
@@ -46,6 +49,12 @@ struct MainTabView: View {
                     Label("Track", systemImage: "plus.circle")
                 }
             
+            NotificationsView()
+                .tabItem {
+                    Label("Notifications", systemImage: "bell")
+                }
+                .badge(notificationViewModel.unreadCount > 0 ? notificationViewModel.unreadCount : 0)
+            
             ProfileView()
                 .tabItem {
                     Label("Profile", systemImage: "person")
@@ -55,6 +64,11 @@ struct MainTabView: View {
                 .tabItem {
                     Label("Leaderboard", systemImage: "trophy")
                 }
+        }
+        .onAppear {
+            if let userId = authViewModel.user?.id {
+                notificationViewModel.startFetchingUnreadCount(userId: userId)
+            }
         }
     }
 }
@@ -76,4 +90,37 @@ struct LoadingView: View {
 #Preview {
     ContentView()
         .environmentObject(AuthViewModel())
+}
+
+class NotificationTabViewModel: ObservableObject {
+    @Published var unreadCount = 0
+    private let databaseService = DatabaseService()
+    private var timer: Timer?
+    
+    func startFetchingUnreadCount(userId: String) {
+        // Immediately fetch the count
+        fetchUnreadCount(userId: userId)
+        
+        // Set up a timer to periodically check for new notifications
+        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.fetchUnreadCount(userId: userId)
+        }
+    }
+    
+    private func fetchUnreadCount(userId: String) {
+        Task {
+            do {
+                let count = try await databaseService.getUnreadNotificationCount(userId: userId)
+                await MainActor.run {
+                    self.unreadCount = count
+                }
+            } catch {
+                print("Error fetching unread notification count: \(error)")
+            }
+        }
+    }
+    
+    deinit {
+        timer?.invalidate()
+    }
 }
