@@ -96,5 +96,4 @@ iOSInjectionProject/
 GoogleService-Info.plist
 
 # Environment variables
-.env MoviBeers/GoogleService-Info.plist
-.env
+.env 
