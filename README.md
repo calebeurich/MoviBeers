@@ -20,7 +20,7 @@ This project started as a lighthearted way to track a running joke between frien
 - MVVM Architecture
 
 ## Status
-This is very much a work in progress! I'm building this app in my spare time to improve my iOS development skills while creating something my friends and I can actually use. Expect bugs, unfinished features, and ongoing improvements.
+This is very much a work in progress! I am building this app in my spare time to improve my iOS development skills while creating something my friends and I can actually use. Expect bugs, unfinished features, and ongoing improvements.
 
 ## Purpose
 The primary purposes of this app are:

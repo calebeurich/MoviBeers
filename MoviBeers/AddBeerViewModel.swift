@@ -3,7 +3,6 @@
 //  MoviBeers
 //
 //  Created by Caleb Eurich on 4/2/25.
-//
 
 import Foundation
 import SwiftUI
