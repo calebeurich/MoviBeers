@@ -21,8 +21,13 @@ struct MoviBeersApp: App {
     private func setupFirebase() {
         print("🔥 Initializing Firebase...")
         do {
-            FirebaseApp.configure()
-            print("✅ Firebase initialized successfully")
+            // Configure Firebase
+            if FirebaseApp.app() == nil {
+                FirebaseApp.configure()
+                print("✅ Firebase initialized successfully")
+            } else {
+                print("ℹ️ Firebase already initialized")
+            }
             
             // Check if Auth is working
             if Auth.auth().currentUser != nil {
@@ -30,18 +35,9 @@ struct MoviBeersApp: App {
             } else {
                 print("👤 No user is currently signed in")
             }
-            
-            // Test database connection
-            let db = Firestore.firestore()
-            db.collection("test").document("connection").setData(["timestamp": FieldValue.serverTimestamp()]) { error in
-                if let error = error {
-                    print("🔴 Firebase Firestore connection test failed: \(error.localizedDescription)")
-                } else {
-                    print("✅ Firebase Firestore connection test successful!")
-                }
-            }
         } catch {
             print("🔴 Failed to initialize Firebase: \(error.localizedDescription)")
+            // Don't throw here, just log the error
         }
     }
     
