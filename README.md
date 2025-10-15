@@ -1,7 +1,7 @@
 # MoviBeers
 
 ## About
-MoviBeers is a fun, work-in-progress iOS application that tracks two of life's simple pleasures: movies watched and beers enjoyed! Born from an inside joke between friends, this app lets you log your movie and beer consumption while competing for the longest streaks and highest counts.
+MoviBeers is a fun, work-in-progress iOS application that tracks two of life's simple pleasures: movies watched and beers enjoyed! Born from an inside joke between friends, this app lets you log your movie and beer consumption while competing for the longest streaks.
 
 ## Background
 This project started as a lighthearted way to track a running joke between friends about our movie watching and beer drinking habits. I decided to turn the joke into an actual app both for fun and to gain hands-on experience with iOS development, Firebase, and SwiftUI.
