@@ -26,8 +26,7 @@ This is very much a work in progress! I am building this app in my spare time to
 The primary purposes of this app are:
 1. Having fun with friends
 2. Gaining practical experience with modern iOS development
-3. Creating a portfolio project
-4. Learning by doing!
+3. Learning by doing!
 
 ## Future Plans
 - Activity feed improvements
